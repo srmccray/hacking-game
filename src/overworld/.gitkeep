@@ -1,0 +1,4 @@
+# Apartment overworld systems
+# - apartment.ts (scene container and layout) - task-06
+# - player.ts (character sprite and movement) - task-06
+# - stations.ts (station definitions and interaction) - task-06
