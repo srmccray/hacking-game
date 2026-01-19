@@ -58,6 +58,14 @@ import {
   showWelcomeBackModal,
   destroyWelcomeBackModal,
 } from './ui/welcome-back-modal';
+import {
+  createMainMenuScene,
+  destroyMainMenuScene,
+} from './ui/scenes/main-menu';
+import {
+  initInGameMenu,
+  destroyInGameMenu,
+} from './ui/in-game-menu';
 
 // Overworld
 import {
@@ -333,54 +341,107 @@ async function init(): Promise<void> {
 
   sceneManager.register('code-breaker', codeBreakerScene);
 
-  // Switch to apartment scene
-  await sceneManager.switchTo('apartment');
-
-  console.log('Apartment scene created and active');
+  console.log('Apartment scene registered');
   console.log('Code Breaker minigame registered');
 
   // ============================================================================
-  // Step 9: Start tick engine (idle progression)
+  // Step 9: Create and register main menu scene
+  // ============================================================================
+
+  /**
+   * Helper function to enter the game (apartment scene).
+   * Handles offline progress modal if applicable.
+   */
+  async function enterGame(): Promise<void> {
+    await sceneManager.switchTo('apartment');
+
+    // Handle offline progress if applicable
+    if (pendingOfflineProgress && pendingOfflineProgress.shouldShowModal) {
+      console.log('Showing welcome-back modal...');
+
+      showWelcomeBackModal(pendingOfflineProgress, () => {
+        if (pendingOfflineProgress) {
+          applyOfflineProgress(pendingOfflineProgress);
+          refreshHUD();
+          pendingOfflineProgress = null;
+        }
+        console.log('Welcome-back modal dismissed, offline progress applied');
+      });
+    } else if (pendingOfflineProgress && pendingOfflineProgress.wasCalculated) {
+      // Less than 1 minute away - apply silently without modal
+      applyOfflineProgress(pendingOfflineProgress);
+      refreshHUD();
+      console.log('Offline progress applied silently (short absence)');
+      pendingOfflineProgress = null;
+    }
+  }
+
+  const mainMenuScene = createMainMenuScene({
+    onNewGame: async () => {
+      console.log('Starting new game...');
+      // hardReset() is already called by the main menu
+      refreshHUD();
+      refreshUpgradePanel();
+      await enterGame();
+    },
+    onContinue: async () => {
+      console.log('Continuing saved game...');
+      await enterGame();
+    },
+  });
+
+  sceneManager.register('main-menu', mainMenuScene);
+  console.log('Main menu scene registered');
+
+  // ============================================================================
+  // Step 10: Initialize in-game menu (Escape key handler)
+  // ============================================================================
+  initInGameMenu({
+    onExitToMainMenu: async () => {
+      console.log('Exiting to main menu...');
+      // Clear pending offline progress since we're going back to menu
+      pendingOfflineProgress = null;
+      await sceneManager.switchTo('main-menu');
+    },
+    canOpenMenu: () => {
+      // Don't allow menu during minigames (can be expanded later)
+      const currentScene = sceneManager.getCurrentSceneId();
+      // For now, only block on main menu (already handled in in-game-menu.ts)
+      // Could add minigame checks here if needed
+      return currentScene !== 'main-menu';
+    },
+  });
+
+  console.log('In-game menu initialized');
+
+  // ============================================================================
+  // Step 11: Switch to initial scene (main menu)
+  // ============================================================================
+  await sceneManager.switchTo('main-menu');
+
+  console.log('Main menu scene active');
+
+  // ============================================================================
+  // Step 12: Start tick engine (idle progression)
   // ============================================================================
   startTickEngine();
 
   console.log('Tick engine started (idle progression active)');
 
   // ============================================================================
-  // Step 10: Start game loop
+  // Step 13: Start game loop
   // ============================================================================
   startGameLoop();
 
   // ============================================================================
-  // Step 11: Setup debug controls (development only)
+  // Step 14: Setup debug controls (development only)
   // ============================================================================
   if (import.meta.env.DEV) {
     setupDebugControls();
   }
 
-  // ============================================================================
-  // Step 12: Handle Offline Progress (Welcome-Back Modal)
-  // ============================================================================
-  if (pendingOfflineProgress && pendingOfflineProgress.shouldShowModal) {
-    console.log('Showing welcome-back modal...');
-
-    // Show the modal - game is paused until player dismisses it
-    showWelcomeBackModal(pendingOfflineProgress, () => {
-      // Apply the offline progress when modal is dismissed
-      if (pendingOfflineProgress) {
-        applyOfflineProgress(pendingOfflineProgress);
-        refreshHUD();
-        pendingOfflineProgress = null;
-      }
-      console.log('Welcome-back modal dismissed, offline progress applied');
-    });
-  } else if (pendingOfflineProgress && pendingOfflineProgress.wasCalculated) {
-    // Less than 1 minute away - apply silently without modal
-    applyOfflineProgress(pendingOfflineProgress);
-    refreshHUD();
-    console.log('Offline progress applied silently (short absence)');
-    pendingOfflineProgress = null;
-  }
+  // Note: Offline progress (welcome-back modal) is now handled when
+  // entering the game from the main menu via enterGame()
 
   // ============================================================================
   // Done!
@@ -394,14 +455,16 @@ async function init(): Promise<void> {
   console.log('  - PixiJS renderer: running');
   console.log('  - HUD: displaying resources');
   console.log('  - Upgrade panel: displaying upgrades');
-  console.log('  - Scene manager: apartment scene active');
+  console.log('  - Scene manager: main-menu scene active');
+  console.log('  - In-game menu: ready (Escape key)');
   console.log('  - Tick engine: idle progression active');
-  console.log('  - Offline progression: ' + (pendingOfflineProgress ? 'modal showing' : 'ready'));
   console.log('  - Game loop: running');
   console.log('');
   console.log('Controls:');
-  console.log('  - A/D or Arrow Keys: Move player');
-  console.log('  - Enter/Space: Interact with stations');
+  console.log('  - Arrow Keys / WASD: Navigate menus');
+  console.log('  - Enter/Space: Select menu item');
+  console.log('  - Escape: Open/close in-game menu');
+  console.log('  - A/D or Arrow Keys: Move player (in game)');
 }
 
 // ============================================================================
@@ -428,6 +491,8 @@ if (import.meta.hot) {
     stopTickEngine();
 
     // Clean up all systems on HMR to prevent duplicates
+    destroyInGameMenu();
+    destroyMainMenuScene();
     destroyApartmentScene();
     destroySaveSystem();
     destroyHUD();
