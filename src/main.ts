@@ -20,9 +20,8 @@
 import { useGameStore } from './core/game-state';
 import {
   initializeSaveSystem,
-  loadGame,
-  saveGame,
   destroySaveSystem,
+  hasSaveData,
 } from './core/save-system';
 import {
   startTickEngine,
@@ -94,42 +93,25 @@ function hideLoading(): void {
 // Save System Integration
 // ============================================================================
 
-/** Pending offline progress result (set during load, shown after init) */
+/** Pending offline progress result (set when loading a save slot, shown after entering game) */
 let pendingOfflineProgress: OfflineProgressResult | null = null;
 
 /**
- * Load any existing save data and restore game state.
- * Also calculates offline progress if applicable.
- * @returns true if a save was loaded, false if starting fresh
+ * Calculate offline progress for the current game state.
+ * Called after loading a save slot from the main menu.
  */
-function loadSavedGame(): boolean {
-  const savedState = loadGame();
+function calculatePendingOfflineProgress(): void {
+  const state = useGameStore.getState();
+  const lastPlayedTimestamp = state.lastPlayed;
 
-  if (savedState) {
-    // Store the lastPlayed timestamp BEFORE loading state (loading will update it)
-    const lastPlayedTimestamp = savedState.lastPlayed;
-
-    useGameStore.getState().loadState(savedState);
-    console.log('Loaded saved game from localStorage');
-
-    // Log some info about the loaded state
-    const state = useGameStore.getState();
-    console.log('  - Last played:', new Date(lastPlayedTimestamp).toLocaleString());
-    console.log('  - Money:', state.resources.money);
-
-    // Calculate offline progress (but don't apply yet - wait for modal)
+  if (lastPlayedTimestamp > 0) {
     pendingOfflineProgress = calculateOfflineProgress(lastPlayedTimestamp);
 
     if (pendingOfflineProgress.wasCalculated) {
+      console.log('Offline progress calculated:');
       console.log('  - Time away:', pendingOfflineProgress.formattedTimeAway);
-      console.log('  - Offline earnings calculated (pending modal)');
     }
-
-    return true;
   }
-
-  console.log('No saved game found, starting fresh');
-  return false;
 }
 
 // ============================================================================
@@ -241,18 +223,17 @@ async function init(): Promise<void> {
   console.log('Hacker Incremental Game initializing...');
 
   // ============================================================================
-  // Step 1: Load saved game state (if any)
+  // Step 1: Initialize save system (auto-save, tab blur, beforeunload)
   // ============================================================================
-  const hadSavedGame = loadSavedGame();
-
-  // ============================================================================
-  // Step 2: Initialize save system (auto-save, tab blur, beforeunload)
-  // ============================================================================
+  // Note: Save loading is now handled by the main menu's slot selection.
+  // The save system just needs to be initialized for auto-save to work.
   initializeSaveSystem();
 
-  // If this is a fresh game, save the initial state
-  if (!hadSavedGame) {
-    saveGame();
+  // Log if any saves exist
+  if (hasSaveData()) {
+    console.log('Existing save slots found');
+  } else {
+    console.log('No save data found - new player');
   }
 
   // ============================================================================
@@ -266,29 +247,19 @@ async function init(): Promise<void> {
   console.log('PixiJS renderer initialized');
 
   // ============================================================================
-  // Step 4: Create HUD
+  // Step 3: Create HUD
   // ============================================================================
   const rootContainer = getRootContainer();
   const hud = createHUD();
   rootContainer.addChild(hud);
 
-  // Refresh HUD with loaded state
-  if (hadSavedGame) {
-    refreshHUD();
-  }
-
   console.log('HUD created');
 
   // ============================================================================
-  // Step 5: Create Upgrade Panel
+  // Step 4: Create Upgrade Panel
   // ============================================================================
   const upgradePanel = createUpgradePanel();
   rootContainer.addChild(upgradePanel);
-
-  // Refresh upgrade panel with loaded state
-  if (hadSavedGame) {
-    refreshUpgradePanel();
-  }
 
   console.log('Upgrade panel created');
 
@@ -379,13 +350,17 @@ async function init(): Promise<void> {
   const mainMenuScene = createMainMenuScene({
     onNewGame: async () => {
       console.log('Starting new game...');
-      // hardReset() is already called by the main menu
+      // hardReset() and slot selection already handled by the main menu
       refreshHUD();
       refreshUpgradePanel();
       await enterGame();
     },
     onContinue: async () => {
       console.log('Continuing saved game...');
+      // Calculate offline progress from the loaded state
+      calculatePendingOfflineProgress();
+      refreshHUD();
+      refreshUpgradePanel();
       await enterGame();
     },
   });

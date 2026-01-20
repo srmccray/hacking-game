@@ -328,6 +328,10 @@ export const gameStore = createStore<GameStore>()(
       set({ lastPlayed: Date.now() });
     },
 
+    setPlayerName: (name: string): void => {
+      set({ playerName: name });
+    },
+
     resetGame: (): void => {
       set(getInitialState());
     },

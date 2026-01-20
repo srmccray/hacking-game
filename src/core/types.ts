@@ -96,6 +96,27 @@ export interface SettingsState {
 }
 
 // ============================================================================
+// Save Slot Types
+// ============================================================================
+
+/**
+ * Metadata for a save slot, used for displaying slot information
+ * without loading the full game state.
+ */
+export interface SaveSlotMetadata {
+  /** The slot index (0-2) */
+  slotIndex: number;
+  /** Whether the slot has no save data */
+  isEmpty: boolean;
+  /** The player's name/alias for this save */
+  playerName: string;
+  /** Timestamp of when the save was last played (ms since epoch) */
+  lastPlayed: number;
+  /** Total play time in milliseconds */
+  totalPlayTime: number;
+}
+
+// ============================================================================
 // Game State
 // ============================================================================
 
@@ -110,6 +131,8 @@ export interface GameState {
   lastSaved: number;
   /** Timestamp of last play session (ms since epoch) - used for offline calculation */
   lastPlayed: number;
+  /** Player's chosen name/alias for this save */
+  playerName: string;
 
   resources: Resources;
   minigames: MinigamesState;
@@ -221,6 +244,12 @@ export interface GameActions {
   updateLastPlayed: () => void;
 
   /**
+   * Set the player's name/alias.
+   * @param name - The player's chosen name
+   */
+  setPlayerName: (name: string) => void;
+
+  /**
    * Reset the game to initial state.
    */
   resetGame: () => void;
@@ -245,7 +274,7 @@ export type GameStore = GameState & GameActions;
  * Current save format version.
  * Increment when making breaking changes to the save format.
  */
-export const SAVE_VERSION = '1.0.0';
+export const SAVE_VERSION = '1.1.0';
 
 /**
  * Default initial state for a new game.
@@ -254,6 +283,7 @@ export const DEFAULT_GAME_STATE: GameState = {
   version: SAVE_VERSION,
   lastSaved: Date.now(),
   lastPlayed: Date.now(),
+  playerName: '',
 
   resources: {
     money: '0',

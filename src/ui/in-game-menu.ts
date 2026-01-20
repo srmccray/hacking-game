@@ -180,24 +180,33 @@ let confirmNoText: Text | null = null;
 
 /**
  * Update confirm dialog button visuals based on selection.
+ * Creates new style objects to avoid shared style mutation.
  */
 function updateConfirmButtonVisuals(): void {
   if (confirmYesText) {
     if (confirmSelectedButton === 0) {
-      confirmYesText.style.fill = '#ffffff';
+      // Yes is selected - white text
       confirmYesText.text = '> [ YES ]';
+      const style = cloneStyle(brightStyle);
+      style.fill = '#ffffff';
+      confirmYesText.style = style;
     } else {
-      confirmYesText.style.fill = '#44ff44';
+      // Yes is not selected - dim green
       confirmYesText.text = '  [ YES ]';
+      confirmYesText.style = cloneStyle(dimStyle);
     }
   }
   if (confirmNoText) {
     if (confirmSelectedButton === 1) {
-      confirmNoText.style.fill = '#44ff44';
+      // No is selected - white text
       confirmNoText.text = '> [ NO ]';
+      const style = cloneStyle(brightStyle);
+      style.fill = '#ffffff';
+      confirmNoText.style = style;
     } else {
-      confirmNoText.style.fill = '#008800';
+      // No is not selected - dim green
       confirmNoText.text = '  [ NO ]';
+      confirmNoText.style = cloneStyle(dimStyle);
     }
   }
 }
@@ -343,6 +352,9 @@ function showConfirmExit(): void {
 
   menuContainer.addChild(confirmContainer);
   menuContainer.sortableChildren = true;
+
+  // Apply initial visual state (ensures white highlight on selected button)
+  updateConfirmButtonVisuals();
 }
 
 /**

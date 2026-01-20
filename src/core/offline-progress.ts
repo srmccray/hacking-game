@@ -113,6 +113,54 @@ export function formatDuration(seconds: number): string {
   return `${minutes}m`;
 }
 
+/**
+ * Format a timestamp as a relative time string (e.g., "2h ago", "3d ago", "Just now").
+ *
+ * @param timestamp - Timestamp in milliseconds since epoch
+ * @returns Formatted relative time string
+ */
+export function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const elapsedMs = now - timestamp;
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+  // Less than 60 seconds
+  if (elapsedSeconds < 60) {
+    return 'Just now';
+  }
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+
+  // Less than 60 minutes
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes}m ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+
+  // Less than 24 hours
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h ago`;
+  }
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+
+  // Less than 30 days
+  if (elapsedDays < 30) {
+    return `${elapsedDays}d ago`;
+  }
+
+  const elapsedMonths = Math.floor(elapsedDays / 30);
+
+  // Less than 12 months
+  if (elapsedMonths < 12) {
+    return `${elapsedMonths}mo ago`;
+  }
+
+  const elapsedYears = Math.floor(elapsedMonths / 12);
+  return `${elapsedYears}y ago`;
+}
+
 // ============================================================================
 // Offline Progress Calculation
 // ============================================================================

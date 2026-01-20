@@ -19,14 +19,17 @@
  */
 
 import { useGameStore } from './game-state';
-import { type GameState, SAVE_VERSION, DEFAULT_GAME_STATE } from './types';
+import { type GameState, type SaveSlotMetadata, SAVE_VERSION, DEFAULT_GAME_STATE } from './types';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/** localStorage key for the save data */
-const SAVE_KEY = 'hacker-incremental-save';
+/** Prefix for slot-based localStorage keys */
+const SLOT_KEY_PREFIX = 'hacker-incremental-slot-';
+
+/** Maximum number of save slots */
+export const MAX_SLOTS = 3;
 
 /** Auto-save interval in milliseconds (30 seconds) */
 const AUTO_SAVE_INTERVAL_MS = 30_000;
@@ -40,6 +43,155 @@ let autoSaveIntervalId: ReturnType<typeof setInterval> | null = null;
 
 /** Flag to track if the save system has been initialized */
 let isInitialized = false;
+
+/** Currently active save slot index (null if no slot selected) */
+let activeSlotIndex: number | null = null;
+
+// ============================================================================
+// Slot Management Functions
+// ============================================================================
+
+/**
+ * Get the localStorage key for a specific save slot.
+ *
+ * @param slotIndex - The slot index (0-2)
+ * @returns The localStorage key for that slot
+ */
+function getSlotKey(slotIndex: number): string {
+  return `${SLOT_KEY_PREFIX}${slotIndex}`;
+}
+
+/**
+ * Set the active save slot.
+ * Must be called before saveGame() can save.
+ *
+ * @param slotIndex - The slot index (0-2) to activate
+ */
+export function setActiveSlot(slotIndex: number): void {
+  if (slotIndex < 0 || slotIndex >= MAX_SLOTS) {
+    console.error('[SaveSystem] Invalid slot index:', slotIndex);
+    return;
+  }
+  activeSlotIndex = slotIndex;
+  console.log('[SaveSystem] Active slot set to:', slotIndex);
+}
+
+/**
+ * Get the currently active save slot index.
+ *
+ * @returns The active slot index, or null if no slot is active
+ */
+export function getActiveSlot(): number | null {
+  return activeSlotIndex;
+}
+
+/**
+ * Load metadata for a specific save slot without loading the full game state.
+ *
+ * @param slotIndex - The slot index (0-2)
+ * @returns SaveSlotMetadata for the slot
+ */
+export function loadSlotMetadata(slotIndex: number): SaveSlotMetadata {
+  const emptySlot: SaveSlotMetadata = {
+    slotIndex,
+    isEmpty: true,
+    playerName: '',
+    lastPlayed: 0,
+    totalPlayTime: 0,
+  };
+
+  if (slotIndex < 0 || slotIndex >= MAX_SLOTS) {
+    return emptySlot;
+  }
+
+  try {
+    const serialized = localStorage.getItem(getSlotKey(slotIndex));
+    if (!serialized) {
+      return emptySlot;
+    }
+
+    const data = JSON.parse(serialized) as Record<string, unknown>;
+
+    return {
+      slotIndex,
+      isEmpty: false,
+      playerName: typeof data['playerName'] === 'string' ? data['playerName'] : '',
+      lastPlayed: typeof data['lastPlayed'] === 'number' ? data['lastPlayed'] : 0,
+      totalPlayTime: typeof data['stats'] === 'object' && data['stats'] !== null
+        ? (typeof (data['stats'] as Record<string, unknown>)['totalPlayTime'] === 'number'
+            ? (data['stats'] as Record<string, unknown>)['totalPlayTime'] as number
+            : 0)
+        : 0,
+    };
+  } catch (error) {
+    console.error('[SaveSystem] Failed to load slot metadata:', slotIndex, error);
+    return emptySlot;
+  }
+}
+
+/**
+ * List all save slots with their metadata.
+ *
+ * @returns Array of SaveSlotMetadata for all slots
+ */
+export function listSaveSlots(): SaveSlotMetadata[] {
+  const slots: SaveSlotMetadata[] = [];
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    slots.push(loadSlotMetadata(i));
+  }
+  return slots;
+}
+
+/**
+ * Get the index of the first empty save slot.
+ *
+ * @returns The index of the first empty slot, or null if all slots are full
+ */
+export function getFirstEmptySlot(): number | null {
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    const metadata = loadSlotMetadata(i);
+    if (metadata.isEmpty) {
+      return i;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get the index of the first occupied save slot.
+ *
+ * @returns The index of the first occupied slot, or null if all slots are empty
+ */
+export function getFirstOccupiedSlot(): number | null {
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    const metadata = loadSlotMetadata(i);
+    if (!metadata.isEmpty) {
+      return i;
+    }
+  }
+  return null;
+}
+
+/**
+ * Delete a specific save slot.
+ *
+ * @param slotIndex - The slot index (0-2) to delete
+ */
+export function deleteSlot(slotIndex: number): void {
+  if (slotIndex < 0 || slotIndex >= MAX_SLOTS) {
+    console.error('[SaveSystem] Invalid slot index for deletion:', slotIndex);
+    return;
+  }
+
+  localStorage.removeItem(getSlotKey(slotIndex));
+
+  // If deleting the active slot, clear the active slot
+  if (activeSlotIndex === slotIndex) {
+    activeSlotIndex = null;
+  }
+
+  console.log('[SaveSystem] Deleted save slot:', slotIndex);
+}
 
 // ============================================================================
 // Save Functions
@@ -57,6 +209,7 @@ function getSerializableState(): GameState {
     version: store.version,
     lastSaved: store.lastSaved,
     lastPlayed: store.lastPlayed,
+    playerName: store.playerName,
     resources: { ...store.resources },
     minigames: JSON.parse(JSON.stringify(store.minigames)),
     upgrades: {
@@ -77,10 +230,16 @@ function getSerializableState(): GameState {
  * Save the current game state to localStorage.
  *
  * Updates both lastSaved and lastPlayed timestamps before saving.
+ * Saves to the currently active slot.
  *
- * @returns true if save was successful, false if it failed
+ * @returns true if save was successful, false if it failed (including if no slot is active)
  */
 export function saveGame(): boolean {
+  if (activeSlotIndex === null) {
+    console.warn('[SaveSystem] Cannot save - no active slot set');
+    return false;
+  }
+
   try {
     // Update timestamps in the store
     const store = useGameStore.getState();
@@ -90,11 +249,11 @@ export function saveGame(): boolean {
     // Get the updated state after timestamp updates
     const state = getSerializableState();
 
-    // Serialize and save to localStorage
+    // Serialize and save to the active slot
     const serialized = JSON.stringify(state);
-    localStorage.setItem(SAVE_KEY, serialized);
+    localStorage.setItem(getSlotKey(activeSlotIndex), serialized);
 
-    console.log('[SaveSystem] Game saved successfully');
+    console.log('[SaveSystem] Game saved successfully to slot:', activeSlotIndex);
     return true;
   } catch (error) {
     console.error('[SaveSystem] Failed to save game:', error);
@@ -121,6 +280,8 @@ function isValidGameState(data: unknown): data is GameState {
   if (typeof obj['version'] !== 'string') return false;
   if (typeof obj['lastSaved'] !== 'number') return false;
   if (typeof obj['lastPlayed'] !== 'number') return false;
+  // playerName is optional for backwards compatibility, but must be string if present
+  if (obj['playerName'] !== undefined && typeof obj['playerName'] !== 'string') return false;
 
   // Check resources
   if (typeof obj['resources'] !== 'object' || obj['resources'] === null) return false;
@@ -154,75 +315,91 @@ function isValidGameState(data: unknown): data is GameState {
 
 /**
  * Migrate save data from older versions to the current version.
- * Currently a pass-through since we're at version 1.0.0.
  *
  * @param state - The loaded state that may need migration
  * @returns The migrated state
  */
 function migrateState(state: GameState): GameState {
-  // Currently at version 1.0.0, no migrations needed
-  // Future migrations would go here:
-  //
-  // if (state.version === '1.0.0') {
-  //   // Migrate from 1.0.0 to 1.1.0
-  //   state = migrateFrom1_0_0To1_1_0(state);
-  // }
+  let migratedState = { ...state };
+
+  // Migrate from 1.0.0 to 1.1.0: add playerName field
+  if (state.version === '1.0.0') {
+    migratedState = {
+      ...migratedState,
+      playerName: migratedState.playerName ?? '',
+    };
+  }
 
   // Ensure version is current after any migrations
   return {
-    ...state,
+    ...migratedState,
     version: SAVE_VERSION,
   };
 }
 
 /**
- * Load the game state from localStorage.
+ * Load the game state from a specific save slot.
+ * Also sets the loaded slot as the active slot.
  *
+ * @param slotIndex - The slot index (0-2) to load from
  * @returns The loaded GameState if found and valid, null otherwise
  */
-export function loadGame(): GameState | null {
+export function loadGame(slotIndex: number): GameState | null {
+  if (slotIndex < 0 || slotIndex >= MAX_SLOTS) {
+    console.error('[SaveSystem] Invalid slot index for loading:', slotIndex);
+    return null;
+  }
+
   try {
-    const serialized = localStorage.getItem(SAVE_KEY);
+    const serialized = localStorage.getItem(getSlotKey(slotIndex));
 
     if (!serialized) {
-      console.log('[SaveSystem] No save data found');
+      console.log('[SaveSystem] No save data found in slot:', slotIndex);
       return null;
     }
 
     const data = JSON.parse(serialized) as unknown;
 
     if (!isValidGameState(data)) {
-      console.warn('[SaveSystem] Save data failed validation, ignoring');
+      console.warn('[SaveSystem] Save data in slot', slotIndex, 'failed validation, ignoring');
       return null;
     }
 
     // Migrate if needed
     const migratedState = migrateState(data);
 
-    console.log('[SaveSystem] Game loaded successfully (version: ' + migratedState.version + ')');
+    // Set this slot as active
+    activeSlotIndex = slotIndex;
+
+    console.log('[SaveSystem] Game loaded successfully from slot:', slotIndex, '(version:', migratedState.version + ')');
     return migratedState;
   } catch (error) {
-    console.error('[SaveSystem] Failed to load game:', error);
+    console.error('[SaveSystem] Failed to load game from slot:', slotIndex, error);
     return null;
   }
 }
 
 /**
- * Check if a save exists in localStorage.
+ * Check if any save exists in any slot.
  *
- * @returns true if a save exists, false otherwise
+ * @returns true if at least one slot has save data, false otherwise
  */
 export function hasSaveData(): boolean {
-  return localStorage.getItem(SAVE_KEY) !== null;
+  return getFirstOccupiedSlot() !== null;
 }
 
 /**
- * Delete the save data from localStorage.
+ * Delete the currently active save slot.
  * Use with caution - this permanently removes the player's progress.
+ *
+ * @deprecated Use deleteSlot(slotIndex) instead for explicit slot management
  */
 export function deleteSave(): void {
-  localStorage.removeItem(SAVE_KEY);
-  console.log('[SaveSystem] Save data deleted');
+  if (activeSlotIndex !== null) {
+    deleteSlot(activeSlotIndex);
+  } else {
+    console.warn('[SaveSystem] Cannot delete - no active slot set');
+  }
 }
 
 // ============================================================================
@@ -231,11 +408,16 @@ export function deleteSave(): void {
 
 /**
  * Export the current game state as a base64-encoded string.
- * This can be used for manual backup or sharing.
+ * Exports from the currently active slot.
  *
- * @returns A base64-encoded string of the save data
+ * @returns A base64-encoded string of the save data, or empty string if no active slot
  */
 export function exportSave(): string {
+  if (activeSlotIndex === null) {
+    console.warn('[SaveSystem] Cannot export - no active slot set');
+    return '';
+  }
+
   // Save first to ensure we have the latest state
   saveGame();
 
@@ -245,18 +427,36 @@ export function exportSave(): string {
   // Encode to base64
   const base64 = btoa(serialized);
 
-  console.log('[SaveSystem] Save exported');
+  console.log('[SaveSystem] Save exported from slot:', activeSlotIndex);
   return base64;
 }
 
 /**
  * Import a game state from a base64-encoded string.
- * This will overwrite the current game state.
+ * Imports to a specific slot, or the first empty slot if not specified.
  *
  * @param base64String - The base64-encoded save data
+ * @param targetSlotIndex - Optional slot index to import into (uses first empty slot if not provided)
  * @returns true if import was successful, false if it failed
  */
-export function importSave(base64String: string): boolean {
+export function importSave(base64String: string, targetSlotIndex?: number): boolean {
+  // Determine target slot
+  let slotIndex: number;
+  if (targetSlotIndex !== undefined) {
+    if (targetSlotIndex < 0 || targetSlotIndex >= MAX_SLOTS) {
+      console.error('[SaveSystem] Invalid slot index for import:', targetSlotIndex);
+      return false;
+    }
+    slotIndex = targetSlotIndex;
+  } else {
+    const emptySlot = getFirstEmptySlot();
+    if (emptySlot === null) {
+      console.error('[SaveSystem] Cannot import - all slots are full');
+      return false;
+    }
+    slotIndex = emptySlot;
+  }
+
   try {
     // Decode from base64
     const serialized = atob(base64String.trim());
@@ -273,10 +473,11 @@ export function importSave(base64String: string): boolean {
     // Load into the store
     useGameStore.getState().loadState(migratedState);
 
-    // Save to localStorage to persist the import
+    // Set active slot and save
+    activeSlotIndex = slotIndex;
     saveGame();
 
-    console.log('[SaveSystem] Save imported successfully');
+    console.log('[SaveSystem] Save imported successfully to slot:', slotIndex);
     return true;
   } catch (error) {
     console.error('[SaveSystem] Failed to import save:', error);
@@ -391,17 +592,22 @@ export function destroySaveSystem(): void {
 }
 
 /**
- * Get the timestamp of when the game was last played.
+ * Get the timestamp of when the game was last played from the active slot.
  * Useful for calculating offline progression.
  *
- * @returns The lastPlayed timestamp from the current state, or null if never played
+ * @returns The lastPlayed timestamp from the active slot, or null if no active slot or never played
  */
 export function getLastPlayedTimestamp(): number | null {
-  const savedState = loadGame();
-  if (!savedState) {
+  if (activeSlotIndex === null) {
     return null;
   }
-  return savedState.lastPlayed;
+
+  const metadata = loadSlotMetadata(activeSlotIndex);
+  if (metadata.isEmpty) {
+    return null;
+  }
+
+  return metadata.lastPlayed || null;
 }
 
 /**
@@ -418,19 +624,17 @@ export function getAutoSaveInterval(): number {
 
 /**
  * Force a reset of the game to default state.
- * Clears localStorage and resets the store.
+ * Resets the store to defaults without modifying any save slots.
+ * Call setActiveSlot() and saveGame() separately to persist.
  */
 export function hardReset(): void {
-  // Delete save data
-  deleteSave();
+  // Clear active slot (new game flow will set it)
+  activeSlotIndex = null;
 
   // Reset the store to defaults
   useGameStore.getState().resetGame();
 
-  // Save the fresh state
-  saveGame();
-
-  console.log('[SaveSystem] Hard reset complete');
+  console.log('[SaveSystem] Hard reset complete (no slot active, call setActiveSlot and saveGame to persist)');
 }
 
 /**
