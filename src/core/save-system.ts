@@ -268,8 +268,10 @@ export function saveGame(): boolean {
 /**
  * Validate that a loaded object has the expected GameState structure.
  * Performs basic shape validation to ensure data integrity.
+ *
+ * Exported for testing purposes.
  */
-function isValidGameState(data: unknown): data is GameState {
+export function isValidGameState(data: unknown): data is GameState {
   if (typeof data !== 'object' || data === null) {
     return false;
   }

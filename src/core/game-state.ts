@@ -67,8 +67,9 @@ function ensureMinigame(
 /**
  * Insert a score into a top scores array, maintaining sorted order (descending)
  * and limiting to the top 5 scores.
+ * Exported for testing purposes.
  */
-function insertScore(scores: string[], newScore: string): string[] {
+export function insertScore(scores: string[], newScore: string): string[] {
   const newScoreDecimal = toDecimal(newScore);
   const result = [...scores];
 
