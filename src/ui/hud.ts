@@ -6,18 +6,10 @@
  *
  * The HUD subscribes to Zustand store changes and updates automatically.
  *
- * Layout:
- * +------------------------------------------+
- * | $ MONEY                                  |
- * | 1,234,567                                |
- * | +123.45/sec                              |
- * |                                          |
- * | TECHNIQUE (dimmed - placeholder)         |
- * | 0 TP                                     |
- * |                                          |
- * | RENOWN (dimmed - placeholder)            |
- * | 0 RP                                     |
- * +------------------------------------------+
+ * Layout (top-right, horizontal):
+ * +-------------------------------------------------------------------+
+ * | $ MONEY: 1,234,567 (+123.45/sec) | TECHNIQUE: 0 TP | RENOWN: 0 RP |
+ * +-------------------------------------------------------------------+
  *
  * Usage:
  *   import { createHUD, updateHUD, destroyHUD } from '@ui/hud';
@@ -26,34 +18,65 @@
  *   getRootContainer().addChild(hud);
  */
 
-import { Container, Text, Graphics } from 'pixi.js';
+import { Container, Text, Graphics, TextStyle } from 'pixi.js';
 import { useGameStore, type GameState } from '../core/game-state';
 import { formatResource, formatRate, createDecimal } from '../core/resource-manager';
 import type { ResourceType } from '../core/types';
-import {
-  createTerminalText,
-  labelStyle,
-  valueStyle,
-  rateStyle,
-  dimStyle,
-} from './styles';
-import { TERMINAL_GREEN, TERMINAL_DIM } from './renderer';
+import { MONOSPACE_FONT } from './styles';
+import { CANVAS_WIDTH, TERMINAL_GREEN, TERMINAL_DIM, TERMINAL_BRIGHT, colorToHex } from './renderer';
 
 // ============================================================================
 // HUD Configuration
 // ============================================================================
 
-/** Padding from canvas edge */
-const HUD_PADDING = 16;
+/** Padding from canvas edge (right side, indented like room title) */
+const HUD_PADDING_RIGHT = 30;
 
-/** Vertical spacing between resource displays */
-const RESOURCE_SPACING = 60;
+/** Vertical offset from top (above room border at y=80) */
+const HUD_PADDING_TOP = 38;
 
-/** Spacing between label and value */
-const LABEL_VALUE_SPACING = 20;
+/** Horizontal spacing between resource displays */
+const RESOURCE_SPACING_H = 14;
 
-/** Spacing between value and rate */
-const VALUE_RATE_SPACING = 16;
+/** Spacing between label and value (horizontal) */
+const LABEL_VALUE_SPACING_H = 6;
+
+/** Background dimensions for horizontal layout */
+const HUD_WIDTH = 480;
+const HUD_HEIGHT = 36;
+
+// ============================================================================
+// HUD-Specific Styles (smaller than global styles)
+// ============================================================================
+
+/** HUD label style - small dim text */
+const hudLabelStyle = new TextStyle({
+  fontFamily: MONOSPACE_FONT,
+  fontSize: 11,
+  fill: colorToHex(TERMINAL_DIM),
+});
+
+/** HUD value style - small bright text */
+const hudValueStyle = new TextStyle({
+  fontFamily: MONOSPACE_FONT,
+  fontSize: 13,
+  fill: colorToHex(TERMINAL_BRIGHT),
+  fontWeight: 'bold',
+});
+
+/** HUD rate style - tiny dim text */
+const hudRateStyle = new TextStyle({
+  fontFamily: MONOSPACE_FONT,
+  fontSize: 10,
+  fill: colorToHex(TERMINAL_DIM),
+});
+
+/** HUD dimmed style - for placeholder resources */
+const hudDimStyle = new TextStyle({
+  fontFamily: MONOSPACE_FONT,
+  fontSize: 11,
+  fill: colorToHex(TERMINAL_DIM),
+});
 
 // ============================================================================
 // HUD State
@@ -83,14 +106,15 @@ let currentAutoRate: string = '0';
 // ============================================================================
 
 /**
- * Create a resource display group (label, value, optional rate).
+ * Create a resource display group (label and value inline, optional rate).
+ * Horizontal layout: "$ MONEY: 1,234,567 (+123.45/sec)"
  *
  * @param label - Resource label text
  * @param resourceType - The resource type for formatting
  * @param initialValue - Initial value string
  * @param showRate - Whether to show rate (for money)
  * @param isDimmed - Whether to display in dimmed style (for placeholders)
- * @returns Object with container and text references
+ * @returns Object with container, text references, and width
  */
 function createResourceDisplay(
   label: string,
@@ -102,34 +126,44 @@ function createResourceDisplay(
   container: Container;
   valueText: Text;
   rateText: Text | null;
+  width: number;
 } {
   const container = new Container();
   container.label = `resource-${resourceType}`;
 
+  let currentX = 0;
+
   // Label
-  const useLabelStyle = isDimmed ? dimStyle : labelStyle;
-  const labelText = createTerminalText(label, useLabelStyle);
+  const useLabelStyle = isDimmed ? hudDimStyle : hudLabelStyle;
+  const labelText = new Text({ text: label + ':', style: useLabelStyle });
+  labelText.x = currentX;
   labelText.y = 0;
   container.addChild(labelText);
+  currentX += labelText.width + LABEL_VALUE_SPACING_H;
 
   // Value
-  const useValueStyle = isDimmed ? dimStyle : valueStyle;
-  const valueText = createTerminalText(
-    formatResource(resourceType, initialValue),
-    useValueStyle
-  );
-  valueText.y = LABEL_VALUE_SPACING;
+  const useValueStyle = isDimmed ? hudDimStyle : hudValueStyle;
+  const valueText = new Text({
+    text: formatResource(resourceType, initialValue),
+    style: useValueStyle,
+  });
+  valueText.x = currentX;
+  valueText.y = 0;
   container.addChild(valueText);
+  currentX += valueText.width;
 
   // Rate (only for money for MVP)
   let rateText: Text | null = null;
   if (showRate) {
-    rateText = createTerminalText('+' + formatRate('0'), rateStyle);
-    rateText.y = LABEL_VALUE_SPACING + VALUE_RATE_SPACING;
+    currentX += LABEL_VALUE_SPACING_H;
+    rateText = new Text({ text: '(+' + formatRate('0') + ')', style: hudRateStyle });
+    rateText.x = currentX;
+    rateText.y = 0;
     container.addChild(rateText);
+    currentX += rateText.width;
   }
 
-  return { container, valueText, rateText };
+  return { container, valueText, rateText, width: currentX };
 }
 
 // ============================================================================
@@ -152,8 +186,6 @@ export function createHUD(): Container {
 
   hudContainer = new Container();
   hudContainer.label = 'hud';
-  hudContainer.x = HUD_PADDING;
-  hudContainer.y = HUD_PADDING;
 
   // Get initial state
   const state = useGameStore.getState();
@@ -162,7 +194,8 @@ export function createHUD(): Container {
   const background = createHUDBackground();
   hudContainer.addChild(background);
 
-  let currentY = 12;
+  const contentY = 10; // Vertical center within HUD
+  let currentX = 10;
 
   // Money display (primary resource)
   const moneyDisplay = createResourceDisplay(
@@ -172,13 +205,20 @@ export function createHUD(): Container {
     true, // Show rate
     false // Not dimmed
   );
-  moneyDisplay.container.x = 12;
-  moneyDisplay.container.y = currentY;
+  moneyDisplay.container.x = currentX;
+  moneyDisplay.container.y = contentY;
   hudContainer.addChild(moneyDisplay.container);
   textElements.moneyValue = moneyDisplay.valueText;
   textElements.moneyRate = moneyDisplay.rateText;
 
-  currentY += RESOURCE_SPACING + 8;
+  currentX += moneyDisplay.width + RESOURCE_SPACING_H;
+
+  // Separator
+  const sep1 = new Text({ text: '|', style: hudDimStyle });
+  sep1.x = currentX;
+  sep1.y = contentY;
+  hudContainer.addChild(sep1);
+  currentX += sep1.width + RESOURCE_SPACING_H;
 
   // Technique display (placeholder for MVP)
   const techniqueDisplay = createResourceDisplay(
@@ -188,12 +228,19 @@ export function createHUD(): Container {
     false, // No rate
     true // Dimmed (placeholder)
   );
-  techniqueDisplay.container.x = 12;
-  techniqueDisplay.container.y = currentY;
+  techniqueDisplay.container.x = currentX;
+  techniqueDisplay.container.y = contentY;
   hudContainer.addChild(techniqueDisplay.container);
   textElements.techniqueValue = techniqueDisplay.valueText;
 
-  currentY += RESOURCE_SPACING - 12;
+  currentX += techniqueDisplay.width + RESOURCE_SPACING_H;
+
+  // Separator
+  const sep2 = new Text({ text: '|', style: hudDimStyle });
+  sep2.x = currentX;
+  sep2.y = contentY;
+  hudContainer.addChild(sep2);
+  currentX += sep2.width + RESOURCE_SPACING_H;
 
   // Renown display (placeholder for MVP)
   const renownDisplay = createResourceDisplay(
@@ -203,10 +250,14 @@ export function createHUD(): Container {
     false, // No rate
     true // Dimmed (placeholder)
   );
-  renownDisplay.container.x = 12;
-  renownDisplay.container.y = currentY;
+  renownDisplay.container.x = currentX;
+  renownDisplay.container.y = contentY;
   hudContainer.addChild(renownDisplay.container);
   textElements.renownValue = renownDisplay.valueText;
+
+  // Position HUD at top-right
+  hudContainer.x = CANVAS_WIDTH - HUD_WIDTH - HUD_PADDING_RIGHT;
+  hudContainer.y = HUD_PADDING_TOP;
 
   // Subscribe to state changes
   subscribeToState();
@@ -222,16 +273,16 @@ function createHUDBackground(): Graphics {
 
   // Semi-transparent background
   graphics.fill({ color: 0x0a0a0a, alpha: 0.8 });
-  graphics.roundRect(0, 0, 180, 170, 4);
+  graphics.roundRect(0, 0, HUD_WIDTH, HUD_HEIGHT, 4);
   graphics.fill();
 
   // Border
   graphics.stroke({ color: TERMINAL_DIM, width: 1, alpha: 0.6 });
-  graphics.roundRect(0, 0, 180, 170, 4);
+  graphics.roundRect(0, 0, HUD_WIDTH, HUD_HEIGHT, 4);
   graphics.stroke();
 
   // Corner accents
-  const accentSize = 8;
+  const accentSize = 6;
   graphics.stroke({ color: TERMINAL_GREEN, width: 2 });
 
   // Top-left corner
@@ -241,21 +292,21 @@ function createHUDBackground(): Graphics {
   graphics.stroke();
 
   // Top-right corner
-  graphics.moveTo(180 - accentSize, 0);
-  graphics.lineTo(180, 0);
-  graphics.lineTo(180, accentSize);
+  graphics.moveTo(HUD_WIDTH - accentSize, 0);
+  graphics.lineTo(HUD_WIDTH, 0);
+  graphics.lineTo(HUD_WIDTH, accentSize);
   graphics.stroke();
 
   // Bottom-left corner
-  graphics.moveTo(0, 170 - accentSize);
-  graphics.lineTo(0, 170);
-  graphics.lineTo(accentSize, 170);
+  graphics.moveTo(0, HUD_HEIGHT - accentSize);
+  graphics.lineTo(0, HUD_HEIGHT);
+  graphics.lineTo(accentSize, HUD_HEIGHT);
   graphics.stroke();
 
   // Bottom-right corner
-  graphics.moveTo(180 - accentSize, 170);
-  graphics.lineTo(180, 170);
-  graphics.lineTo(180, 170 - accentSize);
+  graphics.moveTo(HUD_WIDTH - accentSize, HUD_HEIGHT);
+  graphics.lineTo(HUD_WIDTH, HUD_HEIGHT);
+  graphics.lineTo(HUD_WIDTH, HUD_HEIGHT - accentSize);
   graphics.stroke();
 
   return graphics;
@@ -318,7 +369,7 @@ export function updateAutoRate(ratePerSecond: string): void {
   if (textElements.moneyRate) {
     const rate = createDecimal(ratePerSecond);
     const prefix = rate.gte(0) ? '+' : '';
-    textElements.moneyRate.text = prefix + formatRate(ratePerSecond);
+    textElements.moneyRate.text = '(' + prefix + formatRate(ratePerSecond) + ')';
   }
 }
 

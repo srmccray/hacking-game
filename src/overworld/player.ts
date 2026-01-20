@@ -39,23 +39,41 @@ export const PLAYER_SPEED = 200;
 /** Player character font size */
 const PLAYER_FONT_SIZE = 32;
 
+/** Player bounding box dimensions (approximate for @ character at 32px font) */
+export const PLAYER_WIDTH = 24;
+export const PLAYER_HEIGHT = 32;
+
 /** Minimum X position (left boundary) */
 const MIN_X = 60;
 
 /** Maximum X position (right boundary) - will be set based on apartment width */
 let maxX = 740;
 
+/** Minimum Y position (top boundary - near top wall) */
+const MIN_Y = 120;
+
+/** Maximum Y position (bottom boundary - floor level) */
+const MAX_Y = 420;
+
 // ============================================================================
 // Types
 // ============================================================================
 
-/** Movement direction */
-export type MoveDirection = 'left' | 'right' | 'none';
+/** Movement direction (for single-axis callbacks) */
+export type MoveDirection = 'left' | 'right' | 'up' | 'down' | 'none';
 
 /** Player input state */
 export interface PlayerInput {
   left: boolean;
   right: boolean;
+  up: boolean;
+  down: boolean;
+}
+
+/** Velocity vector for 2D movement */
+export interface Velocity {
+  x: number;
+  y: number;
 }
 
 /** Player instance */
@@ -64,22 +82,26 @@ export interface Player {
   container: Container;
   /** Current X position */
   x: number;
-  /** Current Y position (fixed) */
+  /** Current Y position */
   y: number;
-  /** Current movement direction */
-  direction: MoveDirection;
+  /** Current velocity */
+  velocity: Velocity;
   /** Whether the player is currently moving */
   isMoving: boolean;
   /** Set movement input */
   setInput: (input: Partial<PlayerInput>) => void;
-  /** Update player position based on input */
-  update: (deltaMs: number) => void;
+  /** Update player position based on input, returns proposed delta for collision checking */
+  update: (deltaMs: number) => { deltaX: number; deltaY: number };
+  /** Apply movement delta (called after collision check) */
+  applyMovement: (deltaX: number, deltaY: number) => void;
   /** Set position boundaries */
-  setBounds: (minX: number, maxX: number) => void;
+  setBounds: (minX: number, maxX: number, minY: number, maxY: number) => void;
   /** Get current position */
   getPosition: () => { x: number; y: number };
   /** Teleport to position */
-  setPosition: (x: number) => void;
+  setPosition: (x: number, y?: number) => void;
+  /** Get the player's bounding box for collision detection */
+  getBoundingBox: () => { x: number; y: number; width: number; height: number };
   /** Destroy the player */
   destroy: () => void;
 }
@@ -92,9 +114,10 @@ export interface Player {
  * Create a new player character.
  *
  * @param startX - Initial X position
+ * @param startY - Initial Y position (defaults to FLOOR_Y)
  * @returns A Player instance
  */
-export function createPlayer(startX: number = 400): Player {
+export function createPlayer(startX: number = 400, startY: number = FLOOR_Y): Player {
   const container = new Container();
   container.label = 'player';
 
@@ -102,15 +125,22 @@ export function createPlayer(startX: number = 400): Player {
   const input: PlayerInput = {
     left: false,
     right: false,
+    up: false,
+    down: false,
   };
 
   // Position
   let x = startX;
-  const y = FLOOR_Y;
+  let y = startY;
 
   // Boundaries
   let boundMinX = MIN_X;
   let boundMaxX = maxX;
+  let boundMinY = MIN_Y;
+  let boundMaxY = MAX_Y;
+
+  // Velocity
+  const velocity: Velocity = { x: 0, y: 0 };
 
   // Create the player character sprite
   const characterSprite = createPlayerSprite();
@@ -130,58 +160,94 @@ export function createPlayer(startX: number = 400): Player {
     container,
     x,
     y,
-    direction: 'none',
+    velocity,
     isMoving: false,
 
     setInput(newInput: Partial<PlayerInput>): void {
       if (newInput.left !== undefined) input.left = newInput.left;
       if (newInput.right !== undefined) input.right = newInput.right;
+      if (newInput.up !== undefined) input.up = newInput.up;
+      if (newInput.down !== undefined) input.down = newInput.down;
 
-      // Update direction
-      if (input.left && !input.right) {
-        player.direction = 'left';
-      } else if (input.right && !input.left) {
-        player.direction = 'right';
-      } else {
-        player.direction = 'none';
+      // Calculate velocity based on input
+      let vx = 0;
+      let vy = 0;
+
+      if (input.left && !input.right) vx = -1;
+      else if (input.right && !input.left) vx = 1;
+
+      if (input.up && !input.down) vy = -1;
+      else if (input.down && !input.up) vy = 1;
+
+      // Normalize diagonal movement to prevent faster diagonal speed
+      if (vx !== 0 && vy !== 0) {
+        const magnitude = Math.sqrt(vx * vx + vy * vy);
+        vx /= magnitude;
+        vy /= magnitude;
       }
 
-      player.isMoving = player.direction !== 'none';
+      velocity.x = vx;
+      velocity.y = vy;
+      player.velocity = velocity;
+      player.isMoving = vx !== 0 || vy !== 0;
     },
 
-    update(deltaMs: number): void {
-      if (player.direction === 'none') return;
+    update(deltaMs: number): { deltaX: number; deltaY: number } {
+      if (!player.isMoving) {
+        return { deltaX: 0, deltaY: 0 };
+      }
 
       const deltaSeconds = deltaMs / 1000;
-      const movement = PLAYER_SPEED * deltaSeconds;
+      const baseMovement = PLAYER_SPEED * deltaSeconds;
 
-      if (player.direction === 'left') {
-        x -= movement;
-      } else if (player.direction === 'right') {
-        x += movement;
-      }
+      const deltaX = velocity.x * baseMovement;
+      const deltaY = velocity.y * baseMovement;
 
-      // Clamp to boundaries
-      x = Math.max(boundMinX, Math.min(boundMaxX, x));
-
-      // Update container position
-      player.x = x;
-      container.x = x;
+      return { deltaX, deltaY };
     },
 
-    setBounds(newMinX: number, newMaxX: number): void {
+    applyMovement(deltaX: number, deltaY: number): void {
+      // Apply delta and clamp to boundaries
+      x = Math.max(boundMinX, Math.min(boundMaxX, x + deltaX));
+      y = Math.max(boundMinY, Math.min(boundMaxY, y + deltaY));
+
+      // Update player state and container position
+      player.x = x;
+      player.y = y;
+      container.x = x;
+      container.y = y;
+    },
+
+    setBounds(newMinX: number, newMaxX: number, newMinY: number, newMaxY: number): void {
       boundMinX = newMinX;
       boundMaxX = newMaxX;
+      boundMinY = newMinY;
+      boundMaxY = newMaxY;
     },
 
     getPosition(): { x: number; y: number } {
       return { x: player.x, y: player.y };
     },
 
-    setPosition(newX: number): void {
+    setPosition(newX: number, newY?: number): void {
       x = Math.max(boundMinX, Math.min(boundMaxX, newX));
+      if (newY !== undefined) {
+        y = Math.max(boundMinY, Math.min(boundMaxY, newY));
+      }
       player.x = x;
+      player.y = y;
       container.x = x;
+      container.y = y;
+    },
+
+    getBoundingBox(): { x: number; y: number; width: number; height: number } {
+      // Player is anchored at bottom-center, so calculate top-left corner
+      return {
+        x: player.x - PLAYER_WIDTH / 2,
+        y: player.y - PLAYER_HEIGHT,
+        width: PLAYER_WIDTH,
+        height: PLAYER_HEIGHT,
+      };
     },
 
     destroy(): void {
@@ -243,6 +309,8 @@ function createPlayerShadow(): Graphics {
 /** Key codes for movement */
 const MOVE_LEFT_KEYS = ['ArrowLeft', 'KeyA'];
 const MOVE_RIGHT_KEYS = ['ArrowRight', 'KeyD'];
+const MOVE_UP_KEYS = ['ArrowUp', 'KeyW'];
+const MOVE_DOWN_KEYS = ['ArrowDown', 'KeyS'];
 const INTERACT_KEYS = ['Enter', 'Space'];
 
 /** Input handler type */
@@ -260,7 +328,11 @@ export type InputHandler = {
 export function setupPlayerInput(handler: InputHandler): () => void {
   function handleKeyDown(event: KeyboardEvent): void {
     // Prevent default for game keys
-    if ([...MOVE_LEFT_KEYS, ...MOVE_RIGHT_KEYS, ...INTERACT_KEYS].includes(event.code)) {
+    if (
+      [...MOVE_LEFT_KEYS, ...MOVE_RIGHT_KEYS, ...MOVE_UP_KEYS, ...MOVE_DOWN_KEYS, ...INTERACT_KEYS].includes(
+        event.code
+      )
+    ) {
       event.preventDefault();
     }
 
@@ -268,6 +340,10 @@ export function setupPlayerInput(handler: InputHandler): () => void {
       handler.onMove('left', true);
     } else if (MOVE_RIGHT_KEYS.includes(event.code)) {
       handler.onMove('right', true);
+    } else if (MOVE_UP_KEYS.includes(event.code)) {
+      handler.onMove('up', true);
+    } else if (MOVE_DOWN_KEYS.includes(event.code)) {
+      handler.onMove('down', true);
     } else if (INTERACT_KEYS.includes(event.code)) {
       handler.onInteract();
     }
@@ -278,6 +354,10 @@ export function setupPlayerInput(handler: InputHandler): () => void {
       handler.onMove('left', false);
     } else if (MOVE_RIGHT_KEYS.includes(event.code)) {
       handler.onMove('right', false);
+    } else if (MOVE_UP_KEYS.includes(event.code)) {
+      handler.onMove('up', false);
+    } else if (MOVE_DOWN_KEYS.includes(event.code)) {
+      handler.onMove('down', false);
     }
   }
 

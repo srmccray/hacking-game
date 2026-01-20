@@ -36,6 +36,14 @@ export interface StationConfig {
   enabled?: boolean;
 }
 
+/** Rectangle for collision detection */
+export interface CollisionRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** A station instance */
 export interface Station {
   /** The PixiJS container for this station */
@@ -44,8 +52,12 @@ export interface Station {
   type: StationType;
   /** X position (center of station) */
   x: number;
-  /** Width of the interaction zone */
+  /** Y position (bottom of station) */
+  y: number;
+  /** Width of the station */
   width: number;
+  /** Height of the station */
+  height: number;
   /** Whether the station is enabled */
   enabled: boolean;
   /** Update the interaction prompt visibility */
@@ -54,6 +66,8 @@ export interface Station {
   interact: () => void;
   /** Update enabled state */
   setEnabled: (enabled: boolean) => void;
+  /** Get collision rectangle for AABB detection */
+  getCollisionRect: () => CollisionRect;
   /** Destroy the station */
   destroy: () => void;
 }
@@ -117,11 +131,51 @@ const STATION_VISUALS: Record<StationType, StationVisual> = {
   },
 };
 
-/** Interaction radius (how close player needs to be) */
+/** Interaction radius (how close player needs to be) - kept for compatibility */
 export const INTERACTION_RADIUS = 60;
 
 /** Floor Y position (where stations sit) */
 export const FLOOR_Y = 420;
+
+// ============================================================================
+// Collision Detection
+// ============================================================================
+
+/**
+ * Check for AABB (Axis-Aligned Bounding Box) collision between two rectangles.
+ *
+ * @param rect1 - First collision rectangle
+ * @param rect2 - Second collision rectangle
+ * @returns true if the rectangles overlap
+ */
+export function checkAABBCollision(rect1: CollisionRect, rect2: CollisionRect): boolean {
+  return (
+    rect1.x < rect2.x + rect2.width &&
+    rect1.x + rect1.width > rect2.x &&
+    rect1.y < rect2.y + rect2.height &&
+    rect1.y + rect1.height > rect2.y
+  );
+}
+
+/**
+ * Check if a proposed position would collide with any station.
+ *
+ * @param proposedRect - The proposed collision rectangle for the player
+ * @param stations - Array of stations to check against
+ * @returns The first station that would be collided with, or null
+ */
+export function checkStationCollision(
+  proposedRect: CollisionRect,
+  stations: Station[]
+): Station | null {
+  for (const station of stations) {
+    const stationRect = station.getCollisionRect();
+    if (checkAABBCollision(proposedRect, stationRect)) {
+      return station;
+    }
+  }
+  return null;
+}
 
 // ============================================================================
 // Station Creation
@@ -132,12 +186,14 @@ export const FLOOR_Y = 420;
  *
  * @param type - The type of station to create
  * @param x - X position (center) in the apartment
+ * @param y - Y position (bottom) in the apartment, defaults to FLOOR_Y
  * @param config - Optional configuration
  * @returns A Station instance
  */
 export function createStation(
   type: StationType,
   x: number,
+  y: number = FLOOR_Y,
   config: StationConfig = {}
 ): Station {
   const visual = STATION_VISUALS[type];
@@ -146,7 +202,7 @@ export function createStation(
   const container = new Container();
   container.label = `station-${type}`;
   container.x = x;
-  container.y = FLOOR_Y;
+  container.y = y;
 
   // Create the ASCII art display
   const asciiContainer = createAsciiArt(visual, enabled);
@@ -163,7 +219,9 @@ export function createStation(
     container,
     type,
     x,
+    y,
     width: visual.width,
+    height: visual.height,
     enabled,
 
     showPrompt(visible: boolean): void {
@@ -180,6 +238,16 @@ export function createStation(
       station.enabled = newEnabled;
       // Update visual opacity based on enabled state
       asciiContainer.alpha = newEnabled ? 1 : 0.5;
+    },
+
+    getCollisionRect(): CollisionRect {
+      // Station is anchored at bottom-center, so calculate top-left corner
+      return {
+        x: station.x - station.width / 2,
+        y: station.y - station.height,
+        width: station.width,
+        height: station.height,
+      };
     },
 
     destroy(): void {
@@ -312,21 +380,29 @@ export class StationManager {
 
   /**
    * Update which station (if any) the player can interact with.
+   * Uses AABB collision detection when player rect is provided, otherwise falls back to radius.
    *
    * @param playerX - Player's current X position
+   * @param playerRect - Optional player collision rectangle for AABB detection
    * @returns The station the player can interact with, or null
    */
-  updatePlayerPosition(playerX: number): Station | null {
+  updatePlayerPosition(playerX: number, playerRect?: CollisionRect): Station | null {
     let closestStation: Station | null = null;
-    let closestDistance = Infinity;
 
-    // Find the closest station within interaction range
-    for (const station of this.stations) {
-      const distance = Math.abs(playerX - station.x);
+    if (playerRect) {
+      // Use AABB collision detection
+      closestStation = checkStationCollision(playerRect, this.stations);
+    } else {
+      // Fall back to radius-based detection for compatibility
+      let closestDistance = Infinity;
 
-      if (distance < INTERACTION_RADIUS && distance < closestDistance) {
-        closestStation = station;
-        closestDistance = distance;
+      for (const station of this.stations) {
+        const distance = Math.abs(playerX - station.x);
+
+        if (distance < INTERACTION_RADIUS && distance < closestDistance) {
+          closestStation = station;
+          closestDistance = distance;
+        }
       }
     }
 
@@ -344,6 +420,20 @@ export class StationManager {
    */
   getActiveStation(): Station | null {
     return this.activeStation;
+  }
+
+  /**
+   * Set the active station directly (for collision-based interaction).
+   * Updates prompt visibility for all stations.
+   *
+   * @param station - The station to set as active, or null to clear
+   */
+  setActiveStation(station: Station | null): void {
+    // Update prompt visibility for all stations
+    for (const s of this.stations) {
+      s.showPrompt(s === station);
+    }
+    this.activeStation = station;
   }
 
   /**

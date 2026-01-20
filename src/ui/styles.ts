@@ -135,11 +135,11 @@ export const errorStyle = new TextStyle({
 
 /**
  * Value text style for resource numbers.
- * Bright green, slightly larger for emphasis.
+ * Bright green for emphasis.
  */
 export const valueStyle = new TextStyle({
   fontFamily: MONOSPACE_FONT,
-  fontSize: 18,
+  fontSize: 13,
   fill: colorToHex(TERMINAL_BRIGHT),
   fontWeight: 'bold',
   ...createGlowShadow(TERMINAL_GREEN),
@@ -151,7 +151,7 @@ export const valueStyle = new TextStyle({
  */
 export const labelStyle = new TextStyle({
   fontFamily: MONOSPACE_FONT,
-  fontSize: 14,
+  fontSize: 11,
   fill: colorToHex(TERMINAL_DIM),
   ...createGlowShadow(TERMINAL_DIM, 0.4),
 });
@@ -162,7 +162,7 @@ export const labelStyle = new TextStyle({
  */
 export const rateStyle = new TextStyle({
   fontFamily: MONOSPACE_FONT,
-  fontSize: 11,
+  fontSize: 10,
   fill: colorToHex(TERMINAL_DIM),
   ...createGlowShadow(TERMINAL_DIM, 0.3),
 });

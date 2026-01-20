@@ -6,7 +6,6 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import Decimal from 'break_eternity.js';
 import {
   getUpgrade,
   getAllUpgrades,

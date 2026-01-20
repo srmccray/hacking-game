@@ -4,7 +4,7 @@
  * These tests cover the pure functions and selectors in game-state.ts.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import Decimal from 'break_eternity.js';
 import { insertScore } from './game-state';
 import {

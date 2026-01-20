@@ -37,15 +37,21 @@ import {
   StationManager,
   getStationManager,
   destroyStationManager,
+  checkStationCollision,
   FLOOR_Y,
+  type CollisionRect,
 } from './stations';
 import {
   createPlayer,
   setupPlayerInput,
   setPlayer,
   destroyPlayer,
+  PLAYER_WIDTH,
+  PLAYER_HEIGHT,
   type Player,
 } from './player';
+import { createHUD, destroyHUD } from '../ui/hud';
+import { isInGameMenuVisible } from '../ui/in-game-menu';
 
 // ============================================================================
 // Configuration
@@ -57,13 +63,19 @@ const APARTMENT_CONFIG = {
   leftBound: 60,
   /** Right boundary for player movement */
   rightBound: 740,
-  /** Player starting X position */
-  playerStartX: 200,
-  /** Station positions */
+  /** Top boundary for player movement (near top wall) */
+  topBound: 120,
+  /** Bottom boundary for player movement (floor level) */
+  bottomBound: FLOOR_Y,
+  /** Player starting X position (center of room) */
+  playerStartX: 400,
+  /** Player starting Y position (bottom area, with room to move) */
+  playerStartY: 380,
+  /** Station positions - all on same Y axis with walking space around each */
   stations: {
-    desk: { x: 150 },
-    couch: { x: 500 },
-    bed: { x: 680 },
+    desk: { x: 150, y: 270 },   // Left
+    couch: { x: 400, y: 270 },  // Center
+    bed: { x: 620, y: 270 },    // Right (with space to walk around)
   },
 };
 
@@ -138,48 +150,72 @@ export function createApartmentScene(config: ApartmentSceneConfig = {}): Apartme
   const stationManager = getStationManager();
 
   // Create stations
-  const deskStation = createStation('desk', APARTMENT_CONFIG.stations.desk.x, {
-    onInteract: () => {
-      console.log('Desk station activated!');
-      if (config.onDeskInteract) {
-        config.onDeskInteract();
-      }
-    },
-  });
+  const deskStation = createStation(
+    'desk',
+    APARTMENT_CONFIG.stations.desk.x,
+    APARTMENT_CONFIG.stations.desk.y,
+    {
+      onInteract: () => {
+        console.log('Desk station activated!');
+        if (config.onDeskInteract) {
+          config.onDeskInteract();
+        }
+      },
+    }
+  );
   stationManager.addStation(deskStation);
   container.addChild(deskStation.container);
 
-  const couchStation = createStation('couch', APARTMENT_CONFIG.stations.couch.x, {
-    onInteract: () => {
-      console.log('Couch station activated (placeholder)');
-      if (config.onCouchInteract) {
-        config.onCouchInteract();
-      }
-    },
-  });
+  const couchStation = createStation(
+    'couch',
+    APARTMENT_CONFIG.stations.couch.x,
+    APARTMENT_CONFIG.stations.couch.y,
+    {
+      onInteract: () => {
+        console.log('Couch station activated (placeholder)');
+        if (config.onCouchInteract) {
+          config.onCouchInteract();
+        }
+      },
+    }
+  );
   stationManager.addStation(couchStation);
   container.addChild(couchStation.container);
 
-  const bedStation = createStation('bed', APARTMENT_CONFIG.stations.bed.x, {
-    onInteract: () => {
-      console.log('Bed station activated (placeholder)');
-      if (config.onBedInteract) {
-        config.onBedInteract();
-      }
-    },
-  });
+  const bedStation = createStation(
+    'bed',
+    APARTMENT_CONFIG.stations.bed.x,
+    APARTMENT_CONFIG.stations.bed.y,
+    {
+      onInteract: () => {
+        console.log('Bed station activated (placeholder)');
+        if (config.onBedInteract) {
+          config.onBedInteract();
+        }
+      },
+    }
+  );
   stationManager.addStation(bedStation);
   container.addChild(bedStation.container);
 
   // Create player
-  const player = createPlayer(APARTMENT_CONFIG.playerStartX);
-  player.setBounds(APARTMENT_CONFIG.leftBound, APARTMENT_CONFIG.rightBound);
+  const player = createPlayer(APARTMENT_CONFIG.playerStartX, APARTMENT_CONFIG.playerStartY);
+  player.setBounds(
+    APARTMENT_CONFIG.leftBound,
+    APARTMENT_CONFIG.rightBound,
+    APARTMENT_CONFIG.topBound,
+    APARTMENT_CONFIG.bottomBound
+  );
   setPlayer(player);
   container.addChild(player.container);
 
   // Create instruction text
   const instructions = createInstructions();
   container.addChild(instructions);
+
+  // Create HUD and add to scene
+  const hudContainer = createHUD();
+  container.addChild(hudContainer);
 
   // Create the scene object
   const scene: ApartmentScene = {
@@ -194,16 +230,20 @@ export function createApartmentScene(config: ApartmentSceneConfig = {}): Apartme
       // Setup input handling
       cleanupInput = setupPlayerInput({
         onMove(direction, pressed) {
-          if (isPaused) return;
+          if (isPaused || isInGameMenuVisible()) return;
 
           if (direction === 'left') {
             player.setInput({ left: pressed });
           } else if (direction === 'right') {
             player.setInput({ right: pressed });
+          } else if (direction === 'up') {
+            player.setInput({ up: pressed });
+          } else if (direction === 'down') {
+            player.setInput({ down: pressed });
           }
         },
         onInteract() {
-          if (isPaused) return;
+          if (isPaused || isInGameMenuVisible()) return;
 
           const interacted = stationManager.interactWithActive();
           if (!interacted) {
@@ -212,15 +252,16 @@ export function createApartmentScene(config: ApartmentSceneConfig = {}): Apartme
         },
       });
 
-      // Initial station check
-      stationManager.updatePlayerPosition(player.x);
+      // Initial station check with player bounding box
+      const playerRect = player.getBoundingBox();
+      stationManager.updatePlayerPosition(player.x, playerRect);
     },
 
     onExit(): void {
       console.log('Exiting apartment scene');
 
       // Stop movement
-      player.setInput({ left: false, right: false });
+      player.setInput({ left: false, right: false, up: false, down: false });
 
       // Cleanup input
       if (cleanupInput) {
@@ -232,16 +273,66 @@ export function createApartmentScene(config: ApartmentSceneConfig = {}): Apartme
     onUpdate(delta: number): void {
       if (isPaused) return;
 
-      // Update player position
-      player.update(delta);
+      // Calculate proposed movement
+      const { deltaX, deltaY } = player.update(delta);
 
-      // Update station interaction state
-      stationManager.updatePlayerPosition(player.x);
+      const stations = stationManager.getAllStations();
+      const currentPos = player.getPosition();
+
+      // If there's movement, check for collisions
+      if (deltaX !== 0 || deltaY !== 0) {
+        // Calculate proposed bounding box for each axis independently
+        // This allows "sliding" along walls when colliding
+
+        // Check X movement
+        let allowedDeltaX = deltaX;
+        if (deltaX !== 0) {
+          const proposedXRect: CollisionRect = {
+            x: currentPos.x + deltaX - PLAYER_WIDTH / 2,
+            y: currentPos.y - PLAYER_HEIGHT,
+            width: PLAYER_WIDTH,
+            height: PLAYER_HEIGHT,
+          };
+          const xCollision = checkStationCollision(proposedXRect, stations);
+          if (xCollision) {
+            allowedDeltaX = 0;
+          }
+        }
+
+        // Check Y movement
+        let allowedDeltaY = deltaY;
+        if (deltaY !== 0) {
+          const proposedYRect: CollisionRect = {
+            x: currentPos.x - PLAYER_WIDTH / 2,
+            y: currentPos.y + deltaY - PLAYER_HEIGHT,
+            width: PLAYER_WIDTH,
+            height: PLAYER_HEIGHT,
+          };
+          const yCollision = checkStationCollision(proposedYRect, stations);
+          if (yCollision) {
+            allowedDeltaY = 0;
+          }
+        }
+
+        // Apply allowed movement
+        player.applyMovement(allowedDeltaX, allowedDeltaY);
+      }
+
+      // Check for proximity to stations (use expanded bounding box for interaction)
+      const proximityMargin = 10; // pixels of proximity to trigger interaction prompt
+      const proximityRect: CollisionRect = {
+        x: currentPos.x - PLAYER_WIDTH / 2 - proximityMargin,
+        y: currentPos.y - PLAYER_HEIGHT - proximityMargin,
+        width: PLAYER_WIDTH + proximityMargin * 2,
+        height: PLAYER_HEIGHT + proximityMargin * 2,
+      };
+      const nearbyStation = checkStationCollision(proximityRect, stations);
+      stationManager.setActiveStation(nearbyStation);
     },
 
     pause(): void {
       isPaused = true;
-      player.setInput({ left: false, right: false });
+      player.setInput({ left: false, right: false, up: false, down: false });
     },
 
     resume(): void {
@@ -286,32 +377,13 @@ function createRoomBackground(): Graphics {
 function createFloor(): Container {
   const container = new Container();
 
-  // Floor line
+  // Floor line (dim green to match walls)
   const floorLine = new Graphics();
-  floorLine.stroke({ color: TERMINAL_GREEN, width: 2, alpha: 0.8 });
+  floorLine.stroke({ color: TERMINAL_DIM, width: 1, alpha: 0.5 });
   floorLine.moveTo(20, FLOOR_Y + 20);
   floorLine.lineTo(CANVAS_WIDTH - 20, FLOOR_Y + 20);
   floorLine.stroke();
   container.addChild(floorLine);
-
-  // Floor texture (ASCII pattern)
-  const floorStyle = new TextStyle({
-    fontFamily: MONOSPACE_FONT,
-    fontSize: 10,
-    fill: colorToHex(TERMINAL_DIM),
-    letterSpacing: 2,
-  });
-
-  // Create a floor pattern
-  const pattern = '_'.repeat(80);
-  const floorPattern = new Text({
-    text: pattern,
-    style: floorStyle,
-  });
-  floorPattern.x = 20;
-  floorPattern.y = FLOOR_Y + 25;
-  floorPattern.alpha = 0.3;
-  container.addChild(floorPattern);
 
   return container;
 }
@@ -345,7 +417,7 @@ function createRoomDecorations(): Container {
   rightWall.stroke();
   container.addChild(rightWall);
 
-  // Room title
+  // Room title (top-left)
   const titleStyle = new TextStyle({
     fontFamily: MONOSPACE_FONT,
     fontSize: 14,
@@ -362,9 +434,9 @@ function createRoomDecorations(): Container {
     text: '[ APARTMENT ]',
     style: titleStyle,
   });
-  title.anchor.set(0.5, 0);
-  title.x = CANVAS_WIDTH / 2;
-  title.y = 55;
+  title.anchor.set(0, 1); // Anchor at bottom-left
+  title.x = 30;
+  title.y = 74; // Bottom-aligned with HUD (38 + 36 height)
   container.addChild(title);
 
   // Corner accents
@@ -413,12 +485,15 @@ function createInstructions(): Container {
     fill: colorToHex(TERMINAL_DIM),
   });
 
+  // Position just below the room floor (FLOOR_Y + 20 = 440)
+  const instructionY = FLOOR_Y + 35;
+
   const leftText = new Text({
-    text: '[A/D or Arrow Keys] Move',
+    text: '[WASD or Arrow Keys] Move',
     style: instructionStyle,
   });
   leftText.x = 30;
-  leftText.y = CANVAS_HEIGHT - 40;
+  leftText.y = instructionY;
   container.addChild(leftText);
 
   const rightText = new Text({
@@ -427,7 +502,7 @@ function createInstructions(): Container {
   });
   rightText.anchor.set(1, 0);
   rightText.x = CANVAS_WIDTH - 30;
-  rightText.y = CANVAS_HEIGHT - 40;
+  rightText.y = instructionY;
   container.addChild(rightText);
 
   return container;
@@ -453,6 +528,9 @@ export function destroyApartmentScene(): void {
     cleanupInput();
     cleanupInput = null;
   }
+
+  // Destroy HUD
+  destroyHUD();
 
   // Destroy player
   destroyPlayer();
