@@ -190,7 +190,7 @@ export class MainMenuScene extends BaseScene {
 
     // Version
     this.versionText = new Text({
-      text: 'v2.0.0',
+      text: 'v0.1.0',
       style: terminalSmallStyle,
     });
     this.versionText.anchor.set(0.5, 0);
