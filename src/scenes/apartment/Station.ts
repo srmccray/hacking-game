@@ -62,7 +62,7 @@ const STATION_VISUALS: Record<StationType, StationVisual> = {
     label: '[D]',
     name: 'DESK',
     width: 120,
-    height: 80,
+    height: 50,
     functional: true,
     ascii: [
       '  ___________  ',
@@ -75,7 +75,7 @@ const STATION_VISUALS: Record<StationType, StationVisual> = {
     label: '[C]',
     name: 'COUCH',
     width: 100,
-    height: 60,
+    height: 40,
     functional: false,
     ascii: [
       '  _____  ',
@@ -88,7 +88,7 @@ const STATION_VISUALS: Record<StationType, StationVisual> = {
     label: '[B]',
     name: 'BED',
     width: 90,
-    height: 50,
+    height: 30,
     functional: false,
     ascii: [
       '[==BED==]',
@@ -323,13 +323,15 @@ export class Station {
   /**
    * Get collision rectangle for AABB detection.
    * Station is anchored at bottom-center, so calculate top-left corner.
+   * Bottom padding allows player to get closer to furniture visually.
    */
   getCollisionRect(): BoundingBox {
+    const bottomPadding = 30; // Allow player to overlap with bottom of station visual
     return {
       x: this.x - this.width / 2,
       y: this.y - this.height,
       width: this.width,
-      height: this.height,
+      height: Math.max(this.height - bottomPadding, 10), // Shrink from bottom, min 10px
     };
   }
 

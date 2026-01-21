@@ -12,3 +12,4 @@ export {
   type StationType,
   type StationConfig,
 } from './Station';
+export { ApartmentHUD } from './ApartmentHUD';

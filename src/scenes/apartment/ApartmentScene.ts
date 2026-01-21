@@ -33,10 +33,14 @@ import { FONT_FAMILY, terminalDimStyle } from '../../rendering/styles';
 import { Player, type BoundingBox } from './Player';
 import { Station, StationManager, FLOOR_Y } from './Station';
 import { GameEvents } from '../../events/game-events';
+import { ApartmentHUD } from './ApartmentHUD';
 
 // ============================================================================
 // Configuration
 // ============================================================================
+
+/** Wall line Y position (separates wall from floor) */
+const WALL_LINE_Y = 200;
 
 /** Apartment room configuration */
 const APARTMENT_CONFIG = {
@@ -44,19 +48,19 @@ const APARTMENT_CONFIG = {
   leftBound: 60,
   /** Right boundary for player movement */
   rightBound: 740,
-  /** Top boundary for player movement (near top wall) */
-  topBound: 120,
+  /** Top boundary for player movement (at the wall line - player cannot go above) */
+  topBound: WALL_LINE_Y,
   /** Bottom boundary for player movement (floor level) */
   bottomBound: FLOOR_Y,
   /** Player starting X position (center of room) */
   playerStartX: 400,
-  /** Player starting Y position (bottom area) */
-  playerStartY: 380,
-  /** Station positions */
+  /** Player starting Y position (below furniture collision boxes, accounting for 30px bottom padding) */
+  playerStartY: 375,
+  /** Station positions - moved down so player can walk between wall and furniture */
   stations: {
-    desk: { x: 150, y: 270 },   // Left
-    couch: { x: 400, y: 270 },  // Center
-    bed: { x: 620, y: 270 },    // Right
+    desk: { x: 150, y: 340 },   // Left
+    couch: { x: 400, y: 340 },  // Center
+    bed: { x: 620, y: 340 },    // Right
   },
 };
 
@@ -81,6 +85,9 @@ class ApartmentScene implements Scene {
 
   /** Station manager */
   private readonly stationManager: StationManager;
+
+  /** Resource display HUD */
+  private apartmentHUD: ApartmentHUD | null = null;
 
   /** Input context for this scene */
   private inputContext: InputContext | null = null;
@@ -111,6 +118,9 @@ class ApartmentScene implements Scene {
 
     // Create the room
     this.createRoom();
+
+    // Create resource display HUD in top margin
+    this.createResourceHUD();
 
     // Create stations
     this.createStations();
@@ -193,6 +203,12 @@ class ApartmentScene implements Scene {
       this.game.inputManager.unregisterContext(this.inputContext.id);
     }
 
+    // Destroy resource HUD
+    if (this.apartmentHUD) {
+      this.apartmentHUD.destroy();
+      this.apartmentHUD = null;
+    }
+
     // Destroy player
     if (this.player) {
       this.player.destroy();
@@ -259,6 +275,27 @@ class ApartmentScene implements Scene {
     walls.stroke();
     this.container.addChild(walls);
 
+    // Wall line (baseboard - separates wall from floor, giving dimension)
+    const wallLine = new Graphics();
+    // Main wall line
+    wallLine.stroke({ color: COLORS.TERMINAL_GREEN, width: 2, alpha: 0.6 });
+    wallLine.moveTo(40, WALL_LINE_Y);
+    wallLine.lineTo(width - 40, WALL_LINE_Y);
+    wallLine.stroke();
+
+    // Subtle shading above the wall line (wall area)
+    wallLine.fill({ color: COLORS.TERMINAL_GREEN, alpha: 0.02 });
+    wallLine.rect(40, 80, width - 80, WALL_LINE_Y - 80);
+    wallLine.fill();
+
+    // Secondary line for depth effect (dado rail)
+    wallLine.stroke({ color: COLORS.TERMINAL_DIM, width: 1, alpha: 0.3 });
+    wallLine.moveTo(40, WALL_LINE_Y - 5);
+    wallLine.lineTo(width - 40, WALL_LINE_Y - 5);
+    wallLine.stroke();
+
+    this.container.addChild(wallLine);
+
     // Room decorations
     this.createRoomDecorations();
 
@@ -271,9 +308,9 @@ class ApartmentScene implements Scene {
         fill: COLORS.TERMINAL_DIM,
       }),
     });
-    title.anchor.set(0.5, 0);
+    title.anchor.set(0.5, 0.5); // Center anchor for vertical centering
     title.x = width / 2;
-    title.y = 20;
+    title.y = 58; // Centered between HUD bottom (Y=36) and room ceiling (Y=80)
     this.container.addChild(title);
 
     // Instructions
@@ -289,12 +326,13 @@ class ApartmentScene implements Scene {
 
   /**
    * Create decorative elements for the room.
+   * All wall decorations (window, clock, door) are positioned on the "wall" above WALL_LINE_Y.
    */
   private createRoomDecorations(): void {
     const decorations = new Container();
     decorations.label = 'decorations';
 
-    // Window (top center)
+    // Window (top center, on the wall)
     const window = new Graphics();
     window.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
     window.rect(340, 100, 120, 80);
@@ -315,28 +353,52 @@ class ApartmentScene implements Scene {
 
     decorations.addChild(window);
 
-    // Poster on left wall
-    const poster = new Graphics();
-    poster.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
-    poster.rect(60, 120, 40, 60);
-    poster.stroke();
+    // Door on left wall (proper proportions - extends from wall line up)
+    const doorX = 60;
+    const doorY = 95; // Top of door (near ceiling)
+    const doorWidth = 50;
+    const doorHeight = WALL_LINE_Y - doorY; // Door extends down to wall line
 
-    const posterText = new Text({
-      text: '01\n10',
+    const door = new Graphics();
+    // Door frame
+    door.stroke({ color: COLORS.TERMINAL_GREEN, width: 2, alpha: 0.7 });
+    door.rect(doorX, doorY, doorWidth, doorHeight);
+    door.stroke();
+
+    // Door panels (3 horizontal panels)
+    door.stroke({ color: COLORS.TERMINAL_DIM, width: 1, alpha: 0.5 });
+    const panelMargin = 5;
+    const panelWidth = doorWidth - panelMargin * 2;
+    const panelHeight = (doorHeight - panelMargin * 4) / 3;
+
+    for (let i = 0; i < 3; i++) {
+      const panelY = doorY + panelMargin + i * (panelHeight + panelMargin);
+      door.rect(doorX + panelMargin, panelY, panelWidth, panelHeight);
+    }
+    door.stroke();
+
+    // Door handle (right side)
+    door.fill({ color: COLORS.TERMINAL_GREEN, alpha: 0.8 });
+    door.circle(doorX + doorWidth - 10, doorY + doorHeight * 0.55, 3);
+    door.fill();
+
+    // Door label
+    const doorLabel = new Text({
+      text: 'EXIT',
       style: new TextStyle({
         fontFamily: FONT_FAMILY,
-        fontSize: 12,
+        fontSize: 10,
         fill: COLORS.TERMINAL_DIM,
         align: 'center',
       }),
     });
-    posterText.anchor.set(0.5);
-    posterText.x = 80;
-    posterText.y = 150;
-    decorations.addChild(posterText);
-    decorations.addChild(poster);
+    doorLabel.anchor.set(0.5, 0);
+    doorLabel.x = doorX + doorWidth / 2;
+    doorLabel.y = doorY - 12;
+    decorations.addChild(doorLabel);
+    decorations.addChild(door);
 
-    // Clock on right wall
+    // Clock on right wall (above wall line)
     const clock = new Graphics();
     clock.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
     clock.circle(700, 140, 20);
@@ -349,6 +411,21 @@ class ApartmentScene implements Scene {
     decorations.addChild(clock);
 
     this.container.addChild(decorations);
+  }
+
+  // ==========================================================================
+  // Resource HUD Creation
+  // ==========================================================================
+
+  /**
+   * Create the resource display HUD in the top margin.
+   */
+  private createResourceHUD(): void {
+    this.apartmentHUD = new ApartmentHUD(
+      this.game.store,
+      this.container,
+      this.game.config
+    );
   }
 
   // ==========================================================================
