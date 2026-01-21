@@ -2,12 +2,20 @@
  * Unified Game Configuration
  *
  * This module consolidates all game configuration into a single hierarchical
- * object for easier management and testing.
+ * object. Configuration is immutable after creation - use createConfig() to
+ * merge partial overrides with defaults.
  *
  * Usage:
- *   import { DEFAULT_CONFIG, type GameConfig } from './GameConfig';
+ *   import { DEFAULT_CONFIG, createConfig, type GameConfig } from './GameConfig';
  *
- *   const game = await Game.create(DEFAULT_CONFIG);
+ *   // Use defaults
+ *   const game = await Game.create();
+ *
+ *   // Override specific values
+ *   const game = await Game.create(createConfig({
+ *     canvas: { width: 1024, height: 768 },
+ *     debug: { enabled: true },
+ *   }));
  */
 
 import Decimal from 'break_eternity.js';
@@ -20,46 +28,53 @@ import Decimal from 'break_eternity.js';
  * Canvas/rendering configuration.
  */
 export interface CanvasConfig {
+  /** Canvas width in pixels */
   width: number;
+  /** Canvas height in pixels */
   height: number;
+  /** Background color as hex number */
   backgroundColor: number;
+  /** DOM element ID to mount canvas into */
   containerId: string;
 }
 
 /**
- * Storage configuration.
+ * Storage/persistence configuration.
  */
 export interface StorageConfig {
+  /** Storage backend type */
   type: 'localStorage' | 'indexedDB';
+  /** Prefix for storage keys to avoid collisions */
   keyPrefix: string;
+  /** Maximum number of save slots */
   maxSlots: number;
 }
 
 /**
- * Gameplay configuration.
+ * Core gameplay configuration.
  */
 export interface GameplayConfig {
-  /** Maximum offline time in seconds */
+  /** Maximum offline time that counts for earnings (in seconds) */
   offlineMaxSeconds: number;
-  /** Efficiency multiplier for offline earnings (0-1) */
+  /** Efficiency multiplier for offline earnings (0.0 to 1.0) */
   offlineEfficiency: Decimal;
-  /** Minimum offline seconds to show welcome-back modal */
+  /** Minimum offline seconds before showing welcome-back modal */
   offlineMinSecondsForModal: number;
   /** Auto-save interval in milliseconds */
   autoSaveIntervalMs: number;
-  /** Maximum delta time to prevent physics jumps */
+  /** Maximum delta time per frame to prevent physics jumps (milliseconds) */
   maxDeltaMs: number;
-  /** HUD update interval in milliseconds */
+  /** How often to update the HUD rate display (milliseconds) */
   hudUpdateIntervalMs: number;
 }
 
 /**
- * Auto-generation configuration.
+ * Auto-generation (idle earnings) configuration.
  */
 export interface AutoGenerationConfig {
   /** Divisor for converting score sum to per-second rate */
   scoreToRateDivisor: number;
-  /** Minigame IDs that contribute to money generation */
+  /** Minigame IDs that contribute to money auto-generation */
   moneyGeneratingMinigames: readonly string[];
 }
 
@@ -69,13 +84,13 @@ export interface AutoGenerationConfig {
 export interface CodeBreakerConfig {
   /** Number of digits in each sequence */
   sequenceLength: number;
-  /** Time limit in milliseconds */
+  /** Time limit for the minigame in milliseconds */
   timeLimitMs: number;
-  /** Base points for completing a sequence */
+  /** Base points awarded for completing a sequence */
   baseSequencePoints: number;
-  /** Points per digit matched correctly */
+  /** Additional points per correct digit */
   pointsPerDigit: number;
-  /** Score to Money conversion ratio */
+  /** Score to money conversion ratio (score * ratio = money) */
   scoreToMoneyRatio: number;
   /** Maximum number of top scores to track */
   maxTopScores: number;
@@ -85,46 +100,64 @@ export interface CodeBreakerConfig {
  * Upgrade system configuration.
  */
 export interface UpgradeSystemConfig {
-  /** Default growth rate for exponential costs */
+  /** Default exponential growth rate for upgrade costs */
   defaultGrowthRate: Decimal;
 }
 
 /**
- * Debug configuration.
+ * Debug/development configuration.
  */
 export interface DebugConfig {
-  /** Whether debug mode is enabled */
+  /** Whether debug mode is enabled (shows extra info, enables cheats) */
   enabled: boolean;
   /** Show FPS counter in HUD */
   showFps: boolean;
-  /** Show collision boxes for debugging */
+  /** Show collision boxes for visual debugging */
   showCollisionBoxes: boolean;
 }
 
 /**
- * UI animation configuration.
+ * UI animation timing configuration.
  */
 export interface AnimationConfig {
-  /** Flash duration for resource changes */
+  /** Duration of flash effects (e.g., resource gain) in milliseconds */
   flashDurationMs: number;
-  /** Fade duration for modals */
+  /** Duration of fade in/out transitions in milliseconds */
   fadeDurationMs: number;
 }
 
 /**
- * Complete game configuration.
+ * Player movement configuration for apartment scene.
+ */
+export interface MovementConfig {
+  /** Player movement speed in pixels per second */
+  speed: number;
+  /** Player sprite width for collision */
+  playerWidth: number;
+  /** Player sprite height for collision */
+  playerHeight: number;
+}
+
+/**
+ * Minigames sub-configuration container.
+ */
+export interface MinigamesConfig {
+  codeBreaker: CodeBreakerConfig;
+}
+
+/**
+ * Complete game configuration object.
  */
 export interface GameConfig {
   canvas: CanvasConfig;
   storage: StorageConfig;
   gameplay: GameplayConfig;
   autoGeneration: AutoGenerationConfig;
-  minigames: {
-    codeBreaker: CodeBreakerConfig;
-  };
+  minigames: MinigamesConfig;
   upgrades: UpgradeSystemConfig;
   debug: DebugConfig;
   animation: AnimationConfig;
+  movement: MovementConfig;
 }
 
 // ============================================================================
@@ -132,14 +165,14 @@ export interface GameConfig {
 // ============================================================================
 
 /**
- * Default game configuration.
- * This can be overridden partially when creating the Game instance.
+ * Default game configuration values.
+ * These provide sensible defaults for all configuration options.
  */
 export const DEFAULT_CONFIG: GameConfig = {
   canvas: {
     width: 800,
     height: 600,
-    backgroundColor: 0x0a0a0a,
+    backgroundColor: 0x0a0a0a, // Near-black with slight color
     containerId: 'game-container',
   },
 
@@ -151,15 +184,15 @@ export const DEFAULT_CONFIG: GameConfig = {
 
   gameplay: {
     offlineMaxSeconds: 8 * 60 * 60, // 8 hours
-    offlineEfficiency: new Decimal(0.5),
-    offlineMinSecondsForModal: 60, // 1 minute
-    autoSaveIntervalMs: 30 * 1000, // 30 seconds
-    maxDeltaMs: 1000,
-    hudUpdateIntervalMs: 1000,
+    offlineEfficiency: new Decimal(0.5), // 50% of online rate
+    offlineMinSecondsForModal: 60, // 1 minute minimum to show modal
+    autoSaveIntervalMs: 30 * 1000, // Save every 30 seconds
+    maxDeltaMs: 1000, // Cap delta to 1 second
+    hudUpdateIntervalMs: 1000, // Update rate display every second
   },
 
   autoGeneration: {
-    scoreToRateDivisor: 100,
+    scoreToRateDivisor: 100, // Sum of top scores / 100 = per second rate
     moneyGeneratingMinigames: ['code-breaker'],
   },
 
@@ -169,13 +202,13 @@ export const DEFAULT_CONFIG: GameConfig = {
       timeLimitMs: 60 * 1000, // 60 seconds
       baseSequencePoints: 100,
       pointsPerDigit: 10,
-      scoreToMoneyRatio: 1,
+      scoreToMoneyRatio: 1, // 1:1 score to money
       maxTopScores: 5,
     },
   },
 
   upgrades: {
-    defaultGrowthRate: new Decimal(1.15),
+    defaultGrowthRate: new Decimal(1.15), // 15% cost increase per level
   },
 
   debug: {
@@ -188,32 +221,92 @@ export const DEFAULT_CONFIG: GameConfig = {
     flashDurationMs: 200,
     fadeDurationMs: 300,
   },
+
+  movement: {
+    speed: 200, // pixels per second
+    playerWidth: 32,
+    playerHeight: 64,
+  },
 };
 
+// ============================================================================
+// Configuration Factory
+// ============================================================================
+
 /**
- * Create a configuration by merging partial config with defaults.
- *
- * @param partial - Partial configuration to merge
- * @returns Complete configuration
+ * Partial configuration type for config overrides.
+ * Each sub-config can be partially specified.
  */
-export function createConfig(partial: Partial<GameConfig> = {}): GameConfig {
+export interface PartialGameConfig {
+  canvas?: Partial<CanvasConfig>;
+  storage?: Partial<StorageConfig>;
+  gameplay?: Partial<GameplayConfig>;
+  autoGeneration?: Partial<AutoGenerationConfig>;
+  minigames?: {
+    codeBreaker?: Partial<CodeBreakerConfig>;
+  };
+  upgrades?: Partial<UpgradeSystemConfig>;
+  debug?: Partial<DebugConfig>;
+  animation?: Partial<AnimationConfig>;
+  movement?: Partial<MovementConfig>;
+}
+
+/**
+ * Create a complete GameConfig by merging partial overrides with defaults.
+ *
+ * This performs a shallow merge at each configuration level, allowing you to
+ * override specific values while keeping defaults for unspecified options.
+ *
+ * @param partial - Partial configuration to merge with defaults
+ * @returns Complete configuration object
+ *
+ * @example
+ * ```typescript
+ * const config = createConfig({
+ *   canvas: { width: 1024 },  // Override just width, keep other canvas defaults
+ *   debug: { enabled: true }, // Enable debug mode
+ * });
+ * ```
+ */
+export function createConfig(partial: PartialGameConfig = {}): GameConfig {
   return {
-    ...DEFAULT_CONFIG,
-    ...partial,
-    canvas: { ...DEFAULT_CONFIG.canvas, ...partial.canvas },
-    storage: { ...DEFAULT_CONFIG.storage, ...partial.storage },
-    gameplay: { ...DEFAULT_CONFIG.gameplay, ...partial.gameplay },
-    autoGeneration: { ...DEFAULT_CONFIG.autoGeneration, ...partial.autoGeneration },
+    canvas: {
+      ...DEFAULT_CONFIG.canvas,
+      ...partial.canvas,
+    },
+    storage: {
+      ...DEFAULT_CONFIG.storage,
+      ...partial.storage,
+    },
+    gameplay: {
+      ...DEFAULT_CONFIG.gameplay,
+      ...partial.gameplay,
+    },
+    autoGeneration: {
+      ...DEFAULT_CONFIG.autoGeneration,
+      ...partial.autoGeneration,
+    },
     minigames: {
-      ...DEFAULT_CONFIG.minigames,
-      ...partial.minigames,
       codeBreaker: {
         ...DEFAULT_CONFIG.minigames.codeBreaker,
         ...partial.minigames?.codeBreaker,
       },
     },
-    upgrades: { ...DEFAULT_CONFIG.upgrades, ...partial.upgrades },
-    debug: { ...DEFAULT_CONFIG.debug, ...partial.debug },
-    animation: { ...DEFAULT_CONFIG.animation, ...partial.animation },
+    upgrades: {
+      ...DEFAULT_CONFIG.upgrades,
+      ...partial.upgrades,
+    },
+    debug: {
+      ...DEFAULT_CONFIG.debug,
+      ...partial.debug,
+    },
+    animation: {
+      ...DEFAULT_CONFIG.animation,
+      ...partial.animation,
+    },
+    movement: {
+      ...DEFAULT_CONFIG.movement,
+      ...partial.movement,
+    },
   };
 }

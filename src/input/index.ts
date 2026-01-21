@@ -1,7 +1,12 @@
 /**
- * Input Module Exports
- *
- * This module provides centralized input handling for the game.
+ * Input management exports
  */
 
-export { InputManager, INPUT_PRIORITY, type InputContext, type InputBinding, type GlobalBinding } from './InputManager';
+export {
+  InputManager,
+  INPUT_PRIORITY,
+  type InputPriorityLevel,
+  type InputBinding,
+  type InputContext,
+  type GlobalBinding,
+} from './InputManager';

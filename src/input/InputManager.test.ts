@@ -1,148 +1,277 @@
 /**
- * Tests for the InputManager
+ * Tests for InputManager
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { InputManager, INPUT_PRIORITY, type InputContext } from './InputManager';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { InputManager, INPUT_PRIORITY, type InputContext, type GlobalBinding } from './InputManager';
 
 describe('InputManager', () => {
   let inputManager: InputManager;
-  let addEventListenerSpy: ReturnType<typeof vi.spyOn>;
-  let removeEventListenerSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     inputManager = new InputManager();
-    addEventListenerSpy = vi.spyOn(window, 'addEventListener');
-    removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
   });
 
   afterEach(() => {
     inputManager.destroy();
-    addEventListenerSpy.mockRestore();
-    removeEventListenerSpy.mockRestore();
   });
 
+  // ==========================================================================
+  // Initialization Tests
+  // ==========================================================================
+
   describe('initialization', () => {
-    it('should add event listeners when initialized', () => {
+    it('should initialize and add event listeners', () => {
+      const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+
       inputManager.init();
 
       expect(addEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
       expect(addEventListenerSpy).toHaveBeenCalledWith('keyup', expect.any(Function));
+      expect(addEventListenerSpy).toHaveBeenCalledWith('blur', expect.any(Function));
+      expect(inputManager.isInitialized()).toBe(true);
+
+      addEventListenerSpy.mockRestore();
     });
 
-    it('should not add duplicate listeners if initialized twice', () => {
+    it('should warn when initialized twice', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
       inputManager.init();
       inputManager.init();
 
-      // Should only be called once for each event type
-      const keydownCalls = addEventListenerSpy.mock.calls.filter(
-        (call: unknown[]) => call[0] === 'keydown'
-      );
-      expect(keydownCalls.length).toBe(1);
-    });
-  });
+      expect(warnSpy).toHaveBeenCalledWith('[InputManager] Already initialized');
 
-  describe('destruction', () => {
-    it('should remove event listeners when destroyed', () => {
+      warnSpy.mockRestore();
+    });
+
+    it('should destroy and remove event listeners', () => {
+      const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
+
       inputManager.init();
       inputManager.destroy();
 
       expect(removeEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
       expect(removeEventListenerSpy).toHaveBeenCalledWith('keyup', expect.any(Function));
+      expect(removeEventListenerSpy).toHaveBeenCalledWith('blur', expect.any(Function));
+      expect(inputManager.isInitialized()).toBe(false);
+
+      removeEventListenerSpy.mockRestore();
     });
 
-    it('should clear all contexts and bindings when destroyed', () => {
-      inputManager.init();
-
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map(),
-        enabled: true,
-      });
-
-      inputManager.registerGlobalBinding({
-        code: 'Escape',
-        onPress: vi.fn(),
-      });
+    it('should do nothing when destroying without initialization', () => {
+      const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
 
       inputManager.destroy();
 
-      expect(inputManager.getContextIds()).toHaveLength(0);
+      expect(removeEventListenerSpy).not.toHaveBeenCalled();
+
+      removeEventListenerSpy.mockRestore();
     });
   });
 
-  describe('context management', () => {
-    beforeEach(() => {
-      inputManager.init();
-    });
+  // ==========================================================================
+  // Context Management Tests
+  // ==========================================================================
 
+  describe('context management', () => {
     it('should register a context', () => {
       const context: InputContext = {
-        id: 'test-context',
-        priority: 50,
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: false,
         bindings: new Map(),
-        enabled: true,
       };
 
       inputManager.registerContext(context);
 
-      expect(inputManager.getContextIds()).toContain('test-context');
+      expect(inputManager.getContext('test')).toBe(context);
+      expect(inputManager.getContextIds()).toContain('test');
     });
 
-    it('should replace an existing context with the same id', () => {
+    it('should replace existing context with same ID', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
       const context1: InputContext = {
         id: 'test',
-        priority: 50,
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: false,
         bindings: new Map(),
-        enabled: true,
       };
 
       const context2: InputContext = {
         id: 'test',
-        priority: 100,
-        bindings: new Map(),
+        priority: INPUT_PRIORITY.MENU,
         enabled: true,
+        bindings: new Map(),
       };
 
       inputManager.registerContext(context1);
       inputManager.registerContext(context2);
 
-      // Should only have one context
-      expect(inputManager.getContextIds()).toHaveLength(1);
-      expect(inputManager.isContextEnabled('test')).toBe(true);
+      expect(inputManager.getContext('test')).toBe(context2);
+      expect(warnSpy).toHaveBeenCalled();
+
+      warnSpy.mockRestore();
     });
 
     it('should unregister a context', () => {
-      inputManager.registerContext({
+      const context: InputContext = {
         id: 'test',
-        priority: 50,
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: false,
         bindings: new Map(),
-        enabled: true,
-      });
+      };
 
-      inputManager.unregisterContext('test');
+      inputManager.registerContext(context);
+      const result = inputManager.unregisterContext('test');
 
-      expect(inputManager.getContextIds()).not.toContain('test');
+      expect(result).toBe(true);
+      expect(inputManager.getContext('test')).toBeUndefined();
     });
 
-    it('should enable and disable contexts', () => {
-      inputManager.registerContext({
+    it('should return false when unregistering non-existent context', () => {
+      const result = inputManager.unregisterContext('nonexistent');
+      expect(result).toBe(false);
+    });
+
+    it('should enable a context', () => {
+      const context: InputContext = {
         id: 'test',
-        priority: 50,
-        bindings: new Map(),
+        priority: INPUT_PRIORITY.SCENE,
         enabled: false,
-      });
+        bindings: new Map(),
+      };
 
-      expect(inputManager.isContextEnabled('test')).toBe(false);
+      inputManager.registerContext(context);
+      const result = inputManager.enableContext('test');
 
-      inputManager.enableContext('test');
+      expect(result).toBe(true);
       expect(inputManager.isContextEnabled('test')).toBe(true);
+    });
 
-      inputManager.disableContext('test');
+    it('should return false when enabling non-existent context', () => {
+      const result = inputManager.enableContext('nonexistent');
+      expect(result).toBe(false);
+    });
+
+    it('should disable a context', () => {
+      const context: InputContext = {
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: true,
+        bindings: new Map(),
+      };
+
+      inputManager.registerContext(context);
+      const result = inputManager.disableContext('test');
+
+      expect(result).toBe(true);
       expect(inputManager.isContextEnabled('test')).toBe(false);
+    });
+
+    it('should call onRelease for held keys when disabling context', () => {
+      const releaseFn = vi.fn();
+
+      const context: InputContext = {
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: true,
+        bindings: new Map([['KeyA', { onRelease: releaseFn }]]),
+      };
+
+      inputManager.init();
+      inputManager.registerContext(context);
+
+      // Simulate key press
+      const keydownEvent = new KeyboardEvent('keydown', { code: 'KeyA' });
+      window.dispatchEvent(keydownEvent);
+
+      // Disable context
+      inputManager.disableContext('test');
+
+      expect(releaseFn).toHaveBeenCalled();
+    });
+
+    it('should update context bindings', () => {
+      const context: InputContext = {
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: false,
+        bindings: new Map(),
+      };
+
+      inputManager.registerContext(context);
+
+      const newBindings = new Map([['KeyB', { onPress: (): void => {} }]]);
+      const result = inputManager.updateContextBindings('test', newBindings);
+
+      expect(result).toBe(true);
+      expect(inputManager.getContext('test')?.bindings).toBe(newBindings);
+    });
+
+    it('should return false when updating non-existent context bindings', () => {
+      const result = inputManager.updateContextBindings('nonexistent', new Map());
+      expect(result).toBe(false);
     });
   });
+
+  // ==========================================================================
+  // Global Binding Tests
+  // ==========================================================================
+
+  describe('global bindings', () => {
+    it('should register a global binding', () => {
+      const binding: GlobalBinding = {
+        code: 'Escape',
+        onPress: () => {},
+      };
+
+      inputManager.registerGlobalBinding(binding);
+
+      expect(inputManager.getGlobalBindings()).toContain(binding);
+    });
+
+    it('should replace existing global binding with same code', () => {
+      const binding1: GlobalBinding = {
+        code: 'Escape',
+        onPress: vi.fn(),
+      };
+
+      const binding2: GlobalBinding = {
+        code: 'Escape',
+        onPress: vi.fn(),
+      };
+
+      inputManager.registerGlobalBinding(binding1);
+      inputManager.registerGlobalBinding(binding2);
+
+      expect(inputManager.getGlobalBindings()).toHaveLength(1);
+      expect(inputManager.getGlobalBindings()[0]).toBe(binding2);
+    });
+
+    it('should unregister a global binding', () => {
+      const binding: GlobalBinding = {
+        code: 'Escape',
+        onPress: () => {},
+      };
+
+      inputManager.registerGlobalBinding(binding);
+      const result = inputManager.unregisterGlobalBinding('Escape');
+
+      expect(result).toBe(true);
+      expect(inputManager.getGlobalBindings()).toHaveLength(0);
+    });
+
+    it('should return false when unregistering non-existent global binding', () => {
+      const result = inputManager.unregisterGlobalBinding('nonexistent');
+      expect(result).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Key State Tests
+  // ==========================================================================
 
   describe('key state tracking', () => {
     beforeEach(() => {
@@ -150,293 +279,335 @@ describe('InputManager', () => {
     });
 
     it('should track held keys', () => {
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress: vi.fn() }],
-        ]),
-        enabled: true,
-      });
-
-      // Simulate keydown
       const keydownEvent = new KeyboardEvent('keydown', { code: 'KeyA' });
       window.dispatchEvent(keydownEvent);
 
       expect(inputManager.isKeyHeld('KeyA')).toBe(true);
     });
 
-    it('should stop tracking key when released', () => {
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress: vi.fn(), onRelease: vi.fn() }],
-        ]),
-        enabled: true,
-      });
-
-      // Simulate keydown then keyup
+    it('should update key state on keyup', () => {
       const keydownEvent = new KeyboardEvent('keydown', { code: 'KeyA' });
-      window.dispatchEvent(keydownEvent);
-
       const keyupEvent = new KeyboardEvent('keyup', { code: 'KeyA' });
-      window.dispatchEvent(keyupEvent);
 
+      window.dispatchEvent(keydownEvent);
+      expect(inputManager.isKeyHeld('KeyA')).toBe(true);
+
+      window.dispatchEvent(keyupEvent);
+      expect(inputManager.isKeyHeld('KeyA')).toBe(false);
+    });
+
+    it('should return false for unheld keys', () => {
       expect(inputManager.isKeyHeld('KeyA')).toBe(false);
     });
 
     it('should check if any keys are held', () => {
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress: vi.fn() }],
-          ['KeyD', { onPress: vi.fn() }],
-        ]),
-        enabled: true,
-      });
-
-      // Simulate keydown for KeyA
       const keydownEvent = new KeyboardEvent('keydown', { code: 'KeyA' });
       window.dispatchEvent(keydownEvent);
 
-      expect(inputManager.isAnyKeyHeld(['KeyA', 'KeyD'])).toBe(true);
-      expect(inputManager.isAnyKeyHeld(['KeyW', 'KeyS'])).toBe(false);
+      expect(inputManager.isAnyKeyHeld(['KeyA', 'KeyB', 'KeyC'])).toBe(true);
+      expect(inputManager.isAnyKeyHeld(['KeyX', 'KeyY', 'KeyZ'])).toBe(false);
     });
 
-    it('should get all held keys', () => {
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress: vi.fn() }],
-          ['KeyD', { onPress: vi.fn() }],
-        ]),
-        enabled: true,
-      });
-
-      // Simulate keydown for both keys
+    it('should return all held keys', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyB' }));
 
       const heldKeys = inputManager.getHeldKeys();
+
       expect(heldKeys).toContain('KeyA');
-      expect(heldKeys).toContain('KeyD');
+      expect(heldKeys).toContain('KeyB');
+      expect(heldKeys).toHaveLength(2);
     });
 
     it('should release all keys', () => {
-      const onRelease = vi.fn();
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress: vi.fn(), onRelease }],
-        ]),
-        enabled: true,
-      });
-
-      // Simulate keydown
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
-      expect(inputManager.isKeyHeld('KeyA')).toBe(true);
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyB' }));
 
-      // Release all keys
       inputManager.releaseAllKeys();
 
+      expect(inputManager.getHeldKeys()).toHaveLength(0);
+    });
+
+    it('should call onRelease when releasing all keys', () => {
+      const releaseFn = vi.fn();
+
+      const context: InputContext = {
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: true,
+        bindings: new Map([['KeyA', { onRelease: releaseFn }]]),
+      };
+
+      inputManager.registerContext(context);
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+
+      inputManager.releaseAllKeys();
+
+      expect(releaseFn).toHaveBeenCalled();
+    });
+
+    it('should release all keys on window blur', () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+
+      expect(inputManager.isKeyHeld('KeyA')).toBe(true);
+
+      window.dispatchEvent(new Event('blur'));
+
       expect(inputManager.isKeyHeld('KeyA')).toBe(false);
-      expect(onRelease).toHaveBeenCalled();
     });
   });
 
-  describe('input handling', () => {
+  // ==========================================================================
+  // Input Dispatching Tests
+  // ==========================================================================
+
+  describe('input dispatching', () => {
     beforeEach(() => {
       inputManager.init();
     });
 
-    it('should call onPress handler when key is pressed', () => {
-      const onPress = vi.fn();
-      inputManager.registerContext({
+    it('should call onPress handler for context binding', () => {
+      const pressFn = vi.fn();
+
+      const context: InputContext = {
         id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress }],
-        ]),
+        priority: INPUT_PRIORITY.SCENE,
         enabled: true,
-      });
+        bindings: new Map([['KeyA', { onPress: pressFn }]]),
+      };
+
+      inputManager.registerContext(context);
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+
+      expect(pressFn).toHaveBeenCalled();
+    });
+
+    it('should call onRelease handler for context binding', () => {
+      const releaseFn = vi.fn();
+
+      const context: InputContext = {
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: true,
+        bindings: new Map([['KeyA', { onRelease: releaseFn }]]),
+      };
+
+      inputManager.registerContext(context);
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA' }));
+
+      expect(releaseFn).toHaveBeenCalled();
+    });
+
+    it('should not call handler for disabled context', () => {
+      const pressFn = vi.fn();
+
+      const context: InputContext = {
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: false,
+        bindings: new Map([['KeyA', { onPress: pressFn }]]),
+      };
+
+      inputManager.registerContext(context);
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+
+      expect(pressFn).not.toHaveBeenCalled();
+    });
+
+    it('should respect priority ordering (higher priority first)', () => {
+      const callOrder: string[] = [];
+
+      const lowPriorityContext: InputContext = {
+        id: 'low',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: true,
+        bindings: new Map([['KeyA', { onPress: () => callOrder.push('low') }]]),
+      };
+
+      const highPriorityContext: InputContext = {
+        id: 'high',
+        priority: INPUT_PRIORITY.MENU,
+        enabled: true,
+        bindings: new Map([['KeyA', { onPress: () => callOrder.push('high') }]]),
+      };
+
+      // Register in reverse priority order
+      inputManager.registerContext(lowPriorityContext);
+      inputManager.registerContext(highPriorityContext);
 
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
 
-      expect(onPress).toHaveBeenCalled();
+      expect(callOrder).toEqual(['high', 'low']);
     });
 
-    it('should call onRelease handler when key is released', () => {
-      const onRelease = vi.fn();
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onRelease }],
-        ]),
+    it('should block propagation when blocksPropagation is true', () => {
+      const highPriorityFn = vi.fn();
+      const lowPriorityFn = vi.fn();
+
+      const lowPriorityContext: InputContext = {
+        id: 'low',
+        priority: INPUT_PRIORITY.SCENE,
         enabled: true,
-      });
+        bindings: new Map([['KeyA', { onPress: lowPriorityFn }]]),
+      };
+
+      const highPriorityContext: InputContext = {
+        id: 'high',
+        priority: INPUT_PRIORITY.MENU,
+        enabled: true,
+        blocksPropagation: true,
+        bindings: new Map([['KeyA', { onPress: highPriorityFn }]]),
+      };
+
+      inputManager.registerContext(lowPriorityContext);
+      inputManager.registerContext(highPriorityContext);
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+
+      expect(highPriorityFn).toHaveBeenCalled();
+      expect(lowPriorityFn).not.toHaveBeenCalled();
+    });
+
+    it('should block propagation even without matching binding', () => {
+      const lowPriorityFn = vi.fn();
+
+      const lowPriorityContext: InputContext = {
+        id: 'low',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: true,
+        bindings: new Map([['KeyA', { onPress: lowPriorityFn }]]),
+      };
+
+      const highPriorityContext: InputContext = {
+        id: 'high',
+        priority: INPUT_PRIORITY.MENU,
+        enabled: true,
+        blocksPropagation: true,
+        bindings: new Map(), // No KeyA binding
+      };
+
+      inputManager.registerContext(lowPriorityContext);
+      inputManager.registerContext(highPriorityContext);
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+
+      expect(lowPriorityFn).not.toHaveBeenCalled();
+    });
+
+    it('should ignore repeated keydown events', () => {
+      const pressFn = vi.fn();
+
+      const context: InputContext = {
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: true,
+        bindings: new Map([['KeyA', { onPress: pressFn }]]),
+      };
+
+      inputManager.registerContext(context);
+
+      // First keydown
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+      // Repeated keydown (held key)
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', repeat: true }));
+
+      expect(pressFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ==========================================================================
+  // Global Binding Dispatch Tests
+  // ==========================================================================
+
+  describe('global binding dispatch', () => {
+    beforeEach(() => {
+      inputManager.init();
+    });
+
+    it('should call global binding before context bindings', () => {
+      const callOrder: string[] = [];
+
+      const globalBinding: GlobalBinding = {
+        code: 'KeyA',
+        onPress: () => callOrder.push('global'),
+      };
+
+      const context: InputContext = {
+        id: 'test',
+        priority: INPUT_PRIORITY.SCENE,
+        enabled: true,
+        bindings: new Map([['KeyA', { onPress: () => callOrder.push('context') }]]),
+      };
+
+      inputManager.registerGlobalBinding(globalBinding);
+      inputManager.registerContext(context);
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+
+      // Global binding should block context from receiving input
+      expect(callOrder).toEqual(['global']);
+    });
+
+    it('should check condition before calling global binding', () => {
+      const pressFn = vi.fn();
+      let conditionValue = false;
+
+      const globalBinding: GlobalBinding = {
+        code: 'KeyA',
+        onPress: pressFn,
+        condition: () => conditionValue,
+      };
+
+      inputManager.registerGlobalBinding(globalBinding);
+
+      // Condition is false
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+      expect(pressFn).not.toHaveBeenCalled();
+
+      // Release key first
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA' }));
+
+      // Condition is true
+      conditionValue = true;
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
+      expect(pressFn).toHaveBeenCalled();
+    });
+
+    it('should call global binding onRelease', () => {
+      const releaseFn = vi.fn();
+
+      const globalBinding: GlobalBinding = {
+        code: 'KeyA',
+        onPress: () => {},
+        onRelease: releaseFn,
+      };
+
+      inputManager.registerGlobalBinding(globalBinding);
 
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
       window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA' }));
 
-      expect(onRelease).toHaveBeenCalled();
-    });
-
-    it('should not call handler for disabled context', () => {
-      const onPress = vi.fn();
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress }],
-        ]),
-        enabled: false,
-      });
-
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
-
-      expect(onPress).not.toHaveBeenCalled();
-    });
-
-    it('should handle higher priority contexts first', () => {
-      const lowPriorityHandler = vi.fn();
-      const highPriorityHandler = vi.fn();
-
-      inputManager.registerContext({
-        id: 'low',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress: lowPriorityHandler }],
-        ]),
-        enabled: true,
-      });
-
-      inputManager.registerContext({
-        id: 'high',
-        priority: 100,
-        bindings: new Map([
-          ['KeyA', { onPress: highPriorityHandler }],
-        ]),
-        enabled: true,
-        blocksPropagation: true,
-      });
-
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
-
-      expect(highPriorityHandler).toHaveBeenCalled();
-      expect(lowPriorityHandler).not.toHaveBeenCalled();
-    });
-
-    it('should not block propagation if blocksPropagation is false', () => {
-      const lowPriorityHandler = vi.fn();
-      const highPriorityHandler = vi.fn();
-
-      inputManager.registerContext({
-        id: 'low',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress: lowPriorityHandler }],
-        ]),
-        enabled: true,
-      });
-
-      inputManager.registerContext({
-        id: 'high',
-        priority: 100,
-        bindings: new Map([
-          ['KeyA', { onPress: highPriorityHandler }],
-        ]),
-        enabled: true,
-        blocksPropagation: false,
-      });
-
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
-
-      expect(highPriorityHandler).toHaveBeenCalled();
-      expect(lowPriorityHandler).toHaveBeenCalled();
-    });
-
-    it('should ignore repeated keydown events', () => {
-      const onPress = vi.fn();
-      inputManager.registerContext({
-        id: 'test',
-        priority: 50,
-        bindings: new Map([
-          ['KeyA', { onPress }],
-        ]),
-        enabled: true,
-      });
-
-      // First keydown
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', repeat: false }));
-      // Repeated keydown
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', repeat: true }));
-
-      expect(onPress).toHaveBeenCalledTimes(1);
+      expect(releaseFn).toHaveBeenCalled();
     });
   });
 
-  describe('global bindings', () => {
-    beforeEach(() => {
-      inputManager.init();
+  // ==========================================================================
+  // Priority Constants Tests
+  // ==========================================================================
+
+  describe('priority constants', () => {
+    it('should have correct priority ordering', () => {
+      expect(INPUT_PRIORITY.GLOBAL).toBeLessThan(INPUT_PRIORITY.SCENE);
+      expect(INPUT_PRIORITY.SCENE).toBeLessThan(INPUT_PRIORITY.MENU);
+      expect(INPUT_PRIORITY.MENU).toBeLessThan(INPUT_PRIORITY.DIALOG);
     });
 
-    it('should handle global bindings', () => {
-      const onPress = vi.fn();
-      inputManager.registerGlobalBinding({
-        code: 'Escape',
-        onPress,
-      });
-
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' }));
-
-      expect(onPress).toHaveBeenCalled();
-    });
-
-    it('should check condition before calling global handler', () => {
-      const onPress = vi.fn();
-      inputManager.registerGlobalBinding({
-        code: 'Escape',
-        onPress,
-        condition: () => false,
-      });
-
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' }));
-
-      expect(onPress).not.toHaveBeenCalled();
-    });
-
-    it('should unregister global bindings', () => {
-      const onPress = vi.fn();
-      inputManager.registerGlobalBinding({
-        code: 'Escape',
-        onPress,
-      });
-
-      inputManager.unregisterGlobalBinding('Escape');
-
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' }));
-
-      expect(onPress).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('INPUT_PRIORITY constants', () => {
-    it('should have correct priority values', () => {
+    it('should have expected values', () => {
       expect(INPUT_PRIORITY.GLOBAL).toBe(0);
       expect(INPUT_PRIORITY.SCENE).toBe(50);
       expect(INPUT_PRIORITY.MENU).toBe(75);
       expect(INPUT_PRIORITY.DIALOG).toBe(100);
-    });
-
-    it('should have priorities in ascending order', () => {
-      expect(INPUT_PRIORITY.GLOBAL).toBeLessThan(INPUT_PRIORITY.SCENE);
-      expect(INPUT_PRIORITY.SCENE).toBeLessThan(INPUT_PRIORITY.MENU);
-      expect(INPUT_PRIORITY.MENU).toBeLessThan(INPUT_PRIORITY.DIALOG);
     });
   });
 });

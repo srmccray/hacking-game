@@ -1,15 +1,49 @@
 /**
- * Code Breaker Minigame Module
+ * Code Breaker minigame exports
  *
- * This module exports all components of the Code Breaker minigame.
- *
- * Usage:
- *   import { CodeBreaker, createCodeBreakerScene } from '@minigames/code-breaker';
+ * This module exports everything needed to use the Code Breaker minigame:
+ * - CodeBreakerGame: The game logic class
+ * - CodeBreakerScene: The PixiJS scene for rendering
+ * - Factory functions for creating instances
+ * - Registration helper for MinigameRegistry
  */
 
-// Game logic
-export { CodeBreaker, createCodeBreaker, MAX_TOP_SCORES } from './code-breaker';
+export {
+  CodeBreakerGame,
+  createCodeBreakerGame,
+  type DigitFeedback,
+  type DigitState,
+  type CodeBreakerEventType,
+} from './CodeBreakerGame';
 
-// Scene
-export { createCodeBreakerScene } from './code-breaker-scene';
-export type { CodeBreakerSceneOptions } from './code-breaker-scene';
+export { createCodeBreakerScene } from './CodeBreakerScene';
+
+// ============================================================================
+// Registration Helper
+// ============================================================================
+
+import type { MinigameDefinition, GameInstance } from '../../core/types';
+import { createCodeBreakerScene } from './CodeBreakerScene';
+
+/**
+ * Minigame definition for Code Breaker.
+ * Use this to register Code Breaker with the MinigameRegistry.
+ */
+export const CODE_BREAKER_DEFINITION: MinigameDefinition = {
+  id: 'code-breaker',
+  name: 'Code Breaker',
+  description: 'Match number sequences to hack into systems. Build combos for bonus points!',
+  primaryResource: 'money',
+  createScene: (game: GameInstance) => createCodeBreakerScene(game),
+};
+
+/**
+ * Register Code Breaker minigame with a registry.
+ *
+ * @param registry - The MinigameRegistry to register with
+ */
+export function registerCodeBreaker(
+  registry: { register: (definition: MinigameDefinition) => void }
+): void {
+  registry.register(CODE_BREAKER_DEFINITION);
+}

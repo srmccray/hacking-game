@@ -1,6 +1,6 @@
 {
   "name": "hacking-game",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Hacker-themed incremental game with ASCII-inspired visuals",
   "type": "module",
   "scripts": {

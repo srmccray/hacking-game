@@ -1,19 +1,21 @@
 /**
- * Core type definitions for the Hacker Incremental Game
+ * Core type definitions for the Hacker Incremental Game v2
  *
  * All Decimal values are stored as strings for JSON serialization compatibility.
  * Use break_eternity.js Decimal for calculations, convert to/from strings for storage.
  */
+
+import type { Container } from 'pixi.js';
 
 // ============================================================================
 // Resource Types
 // ============================================================================
 
 /**
- * The three core currencies in the game.
- * - money: Primary currency, buys equipment
- * - technique: Skill currency, improves minigame abilities (placeholder for MVP)
- * - renown: Fame currency, unlocks new content (placeholder for MVP)
+ * The three core resource types in the game.
+ * - money: Primary currency, earned from hacking minigames, buys equipment
+ * - technique: Skill currency, improves minigame abilities (future expansion)
+ * - renown: Fame currency, unlocks new content (future expansion)
  */
 export type ResourceType = 'money' | 'technique' | 'renown';
 
@@ -31,12 +33,14 @@ export interface Resources {
 // ============================================================================
 
 /**
- * State for a single minigame instance.
+ * Persistent state for a single minigame.
  */
 export interface MinigameState {
+  /** Whether the player has unlocked this minigame */
   unlocked: boolean;
-  /** Top 5 scores as Decimal strings, sorted descending */
+  /** Top scores as Decimal strings, sorted descending (max 5) */
   topScores: string[];
+  /** Total number of times the minigame has been played */
   playCount: number;
   /** Minigame-specific upgrades, keyed by upgrade ID with level as value */
   upgrades: Record<string, number>;
@@ -47,17 +51,35 @@ export interface MinigameState {
  */
 export type MinigamesState = Record<string, MinigameState>;
 
+/**
+ * Result from completing a minigame session.
+ */
+export interface MinigameResult {
+  /** The minigame that was completed */
+  minigameId: string;
+  /** Final score achieved */
+  score: number;
+  /** Maximum combo achieved during the session */
+  maxCombo: number;
+  /** Duration of the session in milliseconds */
+  durationMs: number;
+  /** Resource rewards earned */
+  rewards: Partial<Resources>;
+}
+
 // ============================================================================
 // Upgrade Types
 // ============================================================================
 
 /**
  * Equipment upgrades have levels (can be purchased multiple times).
+ * Key is upgrade ID, value is current level.
  */
 export type EquipmentUpgrades = Record<string, number>;
 
 /**
  * Apartment upgrades are boolean (unlocked or not).
+ * Key is upgrade ID, value is whether it's been purchased.
  */
 export type ApartmentUpgrades = Record<string, boolean>;
 
@@ -79,6 +101,8 @@ export interface UpgradesState {
 export interface StatsState {
   /** Total play time in milliseconds */
   totalPlayTime: number;
+  /** Total offline time accumulated in milliseconds */
+  totalOfflineTime: number;
   /** Total resources ever earned, keyed by resource type as Decimal strings */
   totalResourcesEarned: Record<ResourceType, string>;
 }
@@ -122,7 +146,7 @@ export interface SaveSlotMetadata {
 
 /**
  * Complete game state structure for persistence.
- * This matches the FRD specification for save state.
+ * This is the shape of data that gets saved/loaded.
  */
 export interface GameState {
   /** Save format version for migrations */
@@ -147,6 +171,7 @@ export interface GameState {
 
 /**
  * Actions available on the game store for state mutations.
+ * All mutations should go through these actions for consistency.
  */
 export interface GameActions {
   // Resource actions
@@ -174,7 +199,7 @@ export interface GameActions {
 
   // Minigame actions
   /**
-   * Record a new score for a minigame. Maintains top 5 scores.
+   * Record a new score for a minigame. Maintains top 5 scores sorted descending.
    * @param minigameId - The minigame identifier
    * @param score - Score as Decimal string
    */
@@ -193,24 +218,25 @@ export interface GameActions {
   unlockMinigame: (minigameId: string) => void;
 
   /**
-   * Purchase or upgrade a minigame-specific upgrade.
+   * Initialize a minigame state if it doesn't exist.
    * @param minigameId - The minigame identifier
-   * @param upgradeId - The upgrade identifier
    */
-  upgradeMinigame: (minigameId: string, upgradeId: string) => void;
+  ensureMinigameState: (minigameId: string) => void;
 
   // Equipment/upgrade actions
   /**
    * Purchase or upgrade an equipment upgrade.
    * @param upgradeId - The upgrade identifier
+   * @returns The new level of the upgrade
    */
-  purchaseEquipmentUpgrade: (upgradeId: string) => void;
+  purchaseEquipmentUpgrade: (upgradeId: string) => number;
 
   /**
    * Purchase an apartment upgrade.
    * @param upgradeId - The upgrade identifier
+   * @returns true if the purchase was successful
    */
-  purchaseApartmentUpgrade: (upgradeId: string) => void;
+  purchaseApartmentUpgrade: (upgradeId: string) => boolean;
 
   // Stats actions
   /**
@@ -218,6 +244,12 @@ export interface GameActions {
    * @param ms - Milliseconds to add
    */
   addPlayTime: (ms: number) => void;
+
+  /**
+   * Add to total offline time.
+   * @param ms - Milliseconds to add
+   */
+  addOfflineTime: (ms: number) => void;
 
   /**
    * Track resources earned for lifetime stats.
@@ -234,12 +266,12 @@ export interface GameActions {
 
   // Save/load actions
   /**
-   * Update the lastSaved timestamp.
+   * Update the lastSaved timestamp to current time.
    */
   updateLastSaved: () => void;
 
   /**
-   * Update the lastPlayed timestamp.
+   * Update the lastPlayed timestamp to current time.
    */
   updateLastPlayed: () => void;
 
@@ -264,7 +296,89 @@ export interface GameActions {
 /**
  * Complete store type combining state and actions.
  */
-export type GameStore = GameState & GameActions;
+export type GameStoreState = GameState & GameActions;
+
+// ============================================================================
+// Scene Types
+// ============================================================================
+
+/**
+ * Scene lifecycle interface.
+ * Scenes are top-level containers for different game states (main menu, apartment, minigames).
+ */
+export interface Scene {
+  /** Unique identifier for this scene */
+  readonly id: string;
+
+  /**
+   * Called when the scene is entered (becomes active).
+   * Can be async for loading resources.
+   */
+  onEnter(): void | Promise<void>;
+
+  /**
+   * Called when the scene is exited (about to be removed).
+   * Clean up input contexts and subscriptions here.
+   */
+  onExit(): void;
+
+  /**
+   * Called every frame while the scene is active.
+   * @param deltaMs - Time since last frame in milliseconds
+   */
+  onUpdate?(deltaMs: number): void;
+
+  /**
+   * Called when the scene is being destroyed.
+   * Clean up all resources, remove display objects.
+   */
+  onDestroy(): void;
+
+  /**
+   * Get the PixiJS container for this scene.
+   */
+  getContainer(): Container;
+}
+
+/**
+ * Factory function for creating scenes.
+ */
+export type SceneFactory = () => Scene;
+
+// ============================================================================
+// Minigame Definition Types
+// ============================================================================
+
+/**
+ * Forward declaration for Game class to avoid circular imports.
+ * The actual Game class will be defined in game/Game.ts.
+ */
+export interface GameInstance {
+  readonly config: unknown;
+  readonly store: unknown;
+  readonly eventBus: unknown;
+  readonly inputManager: unknown;
+  readonly sceneManager: unknown;
+}
+
+/**
+ * Definition for a minigame that can be registered with the MinigameRegistry.
+ */
+export interface MinigameDefinition {
+  /** Unique identifier for the minigame */
+  id: string;
+  /** Display name */
+  name: string;
+  /** Short description for UI */
+  description: string;
+  /** Which resource this minigame primarily earns */
+  primaryResource: ResourceType;
+  /**
+   * Factory function to create the minigame scene.
+   * @param game - The game instance for accessing systems
+   */
+  createScene: (game: GameInstance) => Scene;
+}
 
 // ============================================================================
 // Constants
@@ -274,47 +388,67 @@ export type GameStore = GameState & GameActions;
  * Current save format version.
  * Increment when making breaking changes to the save format.
  */
-export const SAVE_VERSION = '1.1.0';
+export const SAVE_VERSION = '2.0.0';
+
+/**
+ * Maximum number of top scores to keep per minigame.
+ */
+export const MAX_TOP_SCORES = 5;
 
 /**
  * Default initial state for a new game.
  */
-export const DEFAULT_GAME_STATE: GameState = {
-  version: SAVE_VERSION,
-  lastSaved: Date.now(),
-  lastPlayed: Date.now(),
-  playerName: '',
+export function createInitialGameState(): GameState {
+  return {
+    version: SAVE_VERSION,
+    lastSaved: Date.now(),
+    lastPlayed: Date.now(),
+    playerName: '',
 
-  resources: {
-    money: '0',
-    technique: '0',
-    renown: '0',
-  },
-
-  minigames: {
-    'code-breaker': {
-      unlocked: true, // MVP minigame is unlocked by default
-      topScores: [],
-      playCount: 0,
-      upgrades: {},
-    },
-  },
-
-  upgrades: {
-    equipment: {},
-    apartment: {},
-  },
-
-  settings: {
-    offlineProgressEnabled: true,
-  },
-
-  stats: {
-    totalPlayTime: 0,
-    totalResourcesEarned: {
+    resources: {
       money: '0',
       technique: '0',
       renown: '0',
     },
-  },
-};
+
+    minigames: {
+      'code-breaker': {
+        unlocked: true, // MVP minigame is unlocked by default
+        topScores: [],
+        playCount: 0,
+        upgrades: {},
+      },
+    },
+
+    upgrades: {
+      equipment: {},
+      apartment: {},
+    },
+
+    settings: {
+      offlineProgressEnabled: true,
+    },
+
+    stats: {
+      totalPlayTime: 0,
+      totalOfflineTime: 0,
+      totalResourcesEarned: {
+        money: '0',
+        technique: '0',
+        renown: '0',
+      },
+    },
+  };
+}
+
+/**
+ * Create a default minigame state for a new minigame.
+ */
+export function createDefaultMinigameState(unlocked = false): MinigameState {
+  return {
+    unlocked,
+    topScores: [],
+    playCount: 0,
+    upgrades: {},
+  };
+}

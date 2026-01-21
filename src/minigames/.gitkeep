@@ -1,6 +1,0 @@
-# Minigame systems
-# - base-minigame.ts (abstract interface) - task-07
-# - code-breaker/ (Code Breaker minigame) - task-07
-#   - index.ts
-#   - game-logic.ts
-#   - renderer.ts

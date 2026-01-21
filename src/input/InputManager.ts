@@ -1,5 +1,5 @@
 /**
- * Centralized Input Manager
+ * Centralized Input Manager for v2 Architecture
  *
  * This module provides a single point of control for all keyboard input in the game.
  * It supports context-based input handling, allowing different parts of the game
@@ -13,19 +13,46 @@
  *
  * Usage:
  *   const inputManager = new InputManager();
+ *   inputManager.init();
  *
  *   // Register a context for player movement
  *   inputManager.registerContext({
  *     id: 'apartment',
- *     priority: 50,
+ *     priority: INPUT_PRIORITY.SCENE,
+ *     enabled: false,
+ *     blocksPropagation: false,
  *     bindings: new Map([
  *       ['KeyA', { onPress: () => player.setInput({ left: true }), onRelease: () => player.setInput({ left: false }) }],
  *     ]),
  *   });
  *
+ *   // Enable the context
+ *   inputManager.enableContext('apartment');
+ *
  *   // Check if a key is currently held
  *   if (inputManager.isKeyHeld('KeyA')) { ... }
  */
+
+// ============================================================================
+// Priority Constants
+// ============================================================================
+
+/**
+ * Standard priority levels for input contexts.
+ * Higher priority contexts receive input first.
+ */
+export const INPUT_PRIORITY = {
+  /** Global bindings (always active, checked first) */
+  GLOBAL: 0,
+  /** Main game scene (apartment, etc.) */
+  SCENE: 50,
+  /** In-game menu (pause menu, upgrade panel) */
+  MENU: 75,
+  /** Modal dialogs (confirmations, alerts) */
+  DIALOG: 100,
+} as const;
+
+export type InputPriorityLevel = (typeof INPUT_PRIORITY)[keyof typeof INPUT_PRIORITY];
 
 // ============================================================================
 // Types
@@ -48,14 +75,12 @@ export interface InputBinding {
 export interface InputContext {
   /** Unique identifier for this context */
   id: string;
-  /** Priority level (higher = checked first). Default priorities:
-   * - Dialogs/modals: 100
-   * - Menus: 75
-   * - Scenes: 50
-   * - Global: 0
+  /**
+   * Priority level (higher = checked first).
+   * Use INPUT_PRIORITY constants for standard levels.
    */
   priority: number;
-  /** Map of key codes to bindings */
+  /** Map of key codes to bindings (e.g., 'KeyA', 'ArrowLeft', 'Enter') */
   bindings: Map<string, InputBinding>;
   /** Whether this context is currently active */
   enabled: boolean;
@@ -64,16 +89,17 @@ export interface InputContext {
 }
 
 /**
- * Global binding that always receives input regardless of context.
+ * Global binding that always receives input regardless of context state.
+ * Useful for system-wide shortcuts (e.g., Escape for pause).
  */
 export interface GlobalBinding {
-  /** The key code */
+  /** The key code (e.g., 'Escape', 'KeyU') */
   code: string;
   /** Handler for key press */
   onPress?: () => void;
   /** Handler for key release */
   onRelease?: () => void;
-  /** Condition to check before handling (e.g., canOpenMenu) */
+  /** Optional condition to check before handling (e.g., canOpenMenu) */
   condition?: () => boolean;
 }
 
@@ -83,20 +109,22 @@ export interface GlobalBinding {
 
 /**
  * Centralized input manager for the game.
+ * Manages keyboard input through a context-based priority system.
  */
 export class InputManager {
-  /** Registered input contexts */
-  private contexts: Map<string, InputContext> = new Map();
+  /** Registered input contexts, keyed by ID */
+  private readonly contexts: Map<string, InputContext> = new Map();
 
   /** Global bindings that always receive input */
   private globalBindings: GlobalBinding[] = [];
 
-  /** Currently held keys */
-  private keyStates: Map<string, boolean> = new Map();
+  /** Currently held keys, keyed by key code */
+  private readonly keyStates: Map<string, boolean> = new Map();
 
   /** Bound event handlers for cleanup */
-  private handleKeyDownBound: (e: KeyboardEvent) => void;
-  private handleKeyUpBound: (e: KeyboardEvent) => void;
+  private readonly handleKeyDownBound: (e: KeyboardEvent) => void;
+  private readonly handleKeyUpBound: (e: KeyboardEvent) => void;
+  private readonly handleBlurBound: () => void;
 
   /** Whether the manager is initialized */
   private initialized = false;
@@ -104,6 +132,7 @@ export class InputManager {
   constructor() {
     this.handleKeyDownBound = this.handleKeyDown.bind(this);
     this.handleKeyUpBound = this.handleKeyUp.bind(this);
+    this.handleBlurBound = this.handleBlur.bind(this);
   }
 
   // ==========================================================================
@@ -121,13 +150,14 @@ export class InputManager {
 
     window.addEventListener('keydown', this.handleKeyDownBound);
     window.addEventListener('keyup', this.handleKeyUpBound);
+    window.addEventListener('blur', this.handleBlurBound);
 
     this.initialized = true;
-    console.log('[InputManager] Initialized');
   }
 
   /**
    * Destroy the input manager and remove event listeners.
+   * Cleans up all contexts, bindings, and key states.
    */
   destroy(): void {
     if (!this.initialized) {
@@ -136,13 +166,20 @@ export class InputManager {
 
     window.removeEventListener('keydown', this.handleKeyDownBound);
     window.removeEventListener('keyup', this.handleKeyUpBound);
+    window.removeEventListener('blur', this.handleBlurBound);
 
     this.contexts.clear();
     this.globalBindings = [];
     this.keyStates.clear();
 
     this.initialized = false;
-    console.log('[InputManager] Destroyed');
+  }
+
+  /**
+   * Check if the manager is initialized.
+   */
+  isInitialized(): boolean {
+    return this.initialized;
   }
 
   // ==========================================================================
@@ -151,6 +188,7 @@ export class InputManager {
 
   /**
    * Register an input context.
+   * If a context with the same ID already exists, it will be replaced.
    *
    * @param context - The context to register
    */
@@ -160,40 +198,52 @@ export class InputManager {
     }
 
     this.contexts.set(context.id, context);
-    console.log(`[InputManager] Registered context '${context.id}' (priority: ${context.priority})`);
   }
 
   /**
    * Unregister an input context.
    *
    * @param id - The context ID to remove
+   * @returns true if the context was found and removed
    */
-  unregisterContext(id: string): void {
-    if (this.contexts.delete(id)) {
-      console.log(`[InputManager] Unregistered context '${id}'`);
-    }
+  unregisterContext(id: string): boolean {
+    const existed = this.contexts.delete(id);
+    return existed;
+  }
+
+  /**
+   * Get a context by ID.
+   *
+   * @param id - The context ID
+   * @returns The context or undefined if not found
+   */
+  getContext(id: string): InputContext | undefined {
+    return this.contexts.get(id);
   }
 
   /**
    * Enable an input context.
    *
    * @param id - The context ID to enable
+   * @returns true if the context was found and enabled
    */
-  enableContext(id: string): void {
+  enableContext(id: string): boolean {
     const context = this.contexts.get(id);
     if (context) {
       context.enabled = true;
-      console.log(`[InputManager] Enabled context '${id}'`);
+      return true;
     }
+    return false;
   }
 
   /**
    * Disable an input context.
-   * Also releases any held keys for this context.
+   * Also releases any held keys for this context's bindings.
    *
    * @param id - The context ID to disable
+   * @returns true if the context was found and disabled
    */
-  disableContext(id: string): void {
+  disableContext(id: string): boolean {
     const context = this.contexts.get(id);
     if (context) {
       // Release all held keys for this context's bindings
@@ -204,8 +254,9 @@ export class InputManager {
       }
 
       context.enabled = false;
-      console.log(`[InputManager] Disabled context '${id}'`);
+      return true;
     }
+    return false;
   }
 
   /**
@@ -220,7 +271,7 @@ export class InputManager {
   }
 
   /**
-   * Get all context IDs.
+   * Get all registered context IDs.
    */
   getContextIds(): string[] {
     return Array.from(this.contexts.keys());
@@ -231,12 +282,15 @@ export class InputManager {
    *
    * @param id - The context ID
    * @param bindings - New bindings map
+   * @returns true if the context was found and updated
    */
-  updateContextBindings(id: string, bindings: Map<string, InputBinding>): void {
+  updateContextBindings(id: string, bindings: Map<string, InputBinding>): boolean {
     const context = this.contexts.get(id);
     if (context) {
       context.bindings = bindings;
+      return true;
     }
+    return false;
   }
 
   // ==========================================================================
@@ -245,6 +299,7 @@ export class InputManager {
 
   /**
    * Register a global binding that works regardless of context.
+   * If a binding with the same code already exists, it will be replaced.
    *
    * @param binding - The global binding to register
    */
@@ -252,20 +307,25 @@ export class InputManager {
     // Remove existing binding for the same code if present
     this.globalBindings = this.globalBindings.filter((b) => b.code !== binding.code);
     this.globalBindings.push(binding);
-    console.log(`[InputManager] Registered global binding for '${binding.code}'`);
   }
 
   /**
    * Unregister a global binding.
    *
    * @param code - The key code to unregister
+   * @returns true if the binding was found and removed
    */
-  unregisterGlobalBinding(code: string): void {
+  unregisterGlobalBinding(code: string): boolean {
     const initialLength = this.globalBindings.length;
     this.globalBindings = this.globalBindings.filter((b) => b.code !== code);
-    if (this.globalBindings.length < initialLength) {
-      console.log(`[InputManager] Unregistered global binding for '${code}'`);
-    }
+    return this.globalBindings.length < initialLength;
+  }
+
+  /**
+   * Get all registered global bindings.
+   */
+  getGlobalBindings(): readonly GlobalBinding[] {
+    return this.globalBindings;
   }
 
   // ==========================================================================
@@ -311,6 +371,7 @@ export class InputManager {
   /**
    * Release all held keys.
    * Useful when changing scenes or opening menus.
+   * Triggers release handlers for all currently held keys.
    */
   releaseAllKeys(): void {
     // Trigger release handlers for all held keys
@@ -381,6 +442,7 @@ export class InputManager {
       }
 
       // If context blocks propagation and is enabled, stop checking
+      // even if no binding matched
       if (context.blocksPropagation) {
         return;
       }
@@ -403,6 +465,14 @@ export class InputManager {
 
     // Trigger release handler
     this.handleKeyRelease(code);
+  }
+
+  /**
+   * Handle window blur events (e.g., tab switch).
+   * Releases all held keys to prevent stuck keys.
+   */
+  private handleBlur(): void {
+    this.releaseAllKeys();
   }
 
   /**
@@ -447,29 +517,14 @@ export class InputManager {
    * Check if an event target is an input element.
    */
   private isInputElement(target: EventTarget | null): boolean {
-    if (!target) return false;
+    if (!target) {
+      return false;
+    }
     return (
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement
+      target instanceof HTMLSelectElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
     );
   }
 }
-
-// ============================================================================
-// Priority Constants
-// ============================================================================
-
-/**
- * Standard priority levels for input contexts.
- */
-export const INPUT_PRIORITY = {
-  /** Global bindings (always active) */
-  GLOBAL: 0,
-  /** Main game scene (apartment, etc.) */
-  SCENE: 50,
-  /** In-game menu */
-  MENU: 75,
-  /** Modal dialogs */
-  DIALOG: 100,
-} as const;
