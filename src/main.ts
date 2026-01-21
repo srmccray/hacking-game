@@ -18,10 +18,12 @@
 
 // Game systems - core
 import { useGameStore } from './core/game-state';
+import { createStorageAdapter } from './core/storage';
 import {
   initializeSaveSystem,
   destroySaveSystem,
   hasSaveData,
+  initializeStorage,
 } from './core/save-system';
 import {
   startTickEngine,
@@ -255,14 +257,18 @@ async function init(): Promise<void> {
   console.log('Hacker Incremental Game initializing...');
 
   // ============================================================================
-  // Step 1: Initialize save system (auto-save, tab blur, beforeunload)
+  // Step 1: Initialize storage adapter and save system
   // ============================================================================
+  // Initialize the storage adapter before the save system
+  const storageAdapter = createStorageAdapter();
+  initializeStorage(storageAdapter);
+
   // Note: Save loading is now handled by the main menu's slot selection.
   // The save system just needs to be initialized for auto-save to work.
   initializeSaveSystem();
 
   // Log if any saves exist
-  if (hasSaveData()) {
+  if (await hasSaveData()) {
     console.log('Existing save slots found');
   } else {
     console.log('No save data found - new player');

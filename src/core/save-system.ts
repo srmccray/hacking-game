@@ -1,17 +1,19 @@
 /**
  * Save System for the Hacker Incremental Game
  *
- * Handles persistence using localStorage with:
+ * Handles persistence using a storage adapter abstraction with:
  * - Auto-save every 30 seconds
  * - Save on tab blur and beforeunload
  * - Export/import as base64 for manual backup
  * - Version tracking for future migrations
  *
  * Usage:
- *   import { initializeSaveSystem, saveGame, loadGame } from '@core/save-system';
+ *   import { initializeSaveSystem, saveGame, loadGame, initializeStorage } from '@core/save-system';
+ *   import { createStorageAdapter } from '@core/storage';
  *
  *   // On game start
- *   const savedState = loadGame();
+ *   initializeStorage(createStorageAdapter());
+ *   const savedState = await loadGame(0);
  *   if (savedState) {
  *     useGameStore.getState().loadState(savedState);
  *   }
@@ -20,6 +22,7 @@
 
 import { useGameStore } from './game-state';
 import { type GameState, type SaveSlotMetadata, SAVE_VERSION, DEFAULT_GAME_STATE } from './types';
+import type { StorageAdapter } from './storage';
 
 // ============================================================================
 // Constants
@@ -46,6 +49,31 @@ let isInitialized = false;
 
 /** Currently active save slot index (null if no slot selected) */
 let activeSlotIndex: number | null = null;
+
+/** Storage adapter instance for persistence operations */
+let storageAdapter: StorageAdapter | null = null;
+
+/**
+ * Initialize the storage adapter.
+ * Must be called before any save/load operations.
+ *
+ * @param adapter - The storage adapter to use for persistence
+ */
+export function initializeStorage(adapter: StorageAdapter): void {
+  storageAdapter = adapter;
+  console.log('[SaveSystem] Storage adapter initialized');
+}
+
+/**
+ * Get the storage adapter, throwing if not initialized.
+ * Internal helper to ensure storage is available.
+ */
+function getStorage(): StorageAdapter {
+  if (!storageAdapter) {
+    throw new Error('[SaveSystem] Storage adapter not initialized. Call initializeStorage() first.');
+  }
+  return storageAdapter;
+}
 
 // ============================================================================
 // Slot Management Functions
@@ -91,7 +119,7 @@ export function getActiveSlot(): number | null {
  * @param slotIndex - The slot index (0-2)
  * @returns SaveSlotMetadata for the slot
  */
-export function loadSlotMetadata(slotIndex: number): SaveSlotMetadata {
+export async function loadSlotMetadata(slotIndex: number): Promise<SaveSlotMetadata> {
   const emptySlot: SaveSlotMetadata = {
     slotIndex,
     isEmpty: true,
@@ -105,7 +133,8 @@ export function loadSlotMetadata(slotIndex: number): SaveSlotMetadata {
   }
 
   try {
-    const serialized = localStorage.getItem(getSlotKey(slotIndex));
+    const storage = getStorage();
+    const serialized = await storage.getItem(getSlotKey(slotIndex));
     if (!serialized) {
       return emptySlot;
     }
@@ -134,12 +163,12 @@ export function loadSlotMetadata(slotIndex: number): SaveSlotMetadata {
  *
  * @returns Array of SaveSlotMetadata for all slots
  */
-export function listSaveSlots(): SaveSlotMetadata[] {
-  const slots: SaveSlotMetadata[] = [];
+export async function listSaveSlots(): Promise<SaveSlotMetadata[]> {
+  const slotPromises: Promise<SaveSlotMetadata>[] = [];
   for (let i = 0; i < MAX_SLOTS; i++) {
-    slots.push(loadSlotMetadata(i));
+    slotPromises.push(loadSlotMetadata(i));
   }
-  return slots;
+  return Promise.all(slotPromises);
 }
 
 /**
@@ -147,9 +176,9 @@ export function listSaveSlots(): SaveSlotMetadata[] {
  *
  * @returns The index of the first empty slot, or null if all slots are full
  */
-export function getFirstEmptySlot(): number | null {
+export async function getFirstEmptySlot(): Promise<number | null> {
   for (let i = 0; i < MAX_SLOTS; i++) {
-    const metadata = loadSlotMetadata(i);
+    const metadata = await loadSlotMetadata(i);
     if (metadata.isEmpty) {
       return i;
     }
@@ -162,9 +191,9 @@ export function getFirstEmptySlot(): number | null {
  *
  * @returns The index of the first occupied slot, or null if all slots are empty
  */
-export function getFirstOccupiedSlot(): number | null {
+export async function getFirstOccupiedSlot(): Promise<number | null> {
   for (let i = 0; i < MAX_SLOTS; i++) {
-    const metadata = loadSlotMetadata(i);
+    const metadata = await loadSlotMetadata(i);
     if (!metadata.isEmpty) {
       return i;
     }
@@ -177,13 +206,14 @@ export function getFirstOccupiedSlot(): number | null {
  *
  * @param slotIndex - The slot index (0-2) to delete
  */
-export function deleteSlot(slotIndex: number): void {
+export async function deleteSlot(slotIndex: number): Promise<void> {
   if (slotIndex < 0 || slotIndex >= MAX_SLOTS) {
     console.error('[SaveSystem] Invalid slot index for deletion:', slotIndex);
     return;
   }
 
-  localStorage.removeItem(getSlotKey(slotIndex));
+  const storage = getStorage();
+  await storage.removeItem(getSlotKey(slotIndex));
 
   // If deleting the active slot, clear the active slot
   if (activeSlotIndex === slotIndex) {
@@ -227,14 +257,14 @@ function getSerializableState(): GameState {
 }
 
 /**
- * Save the current game state to localStorage.
+ * Save the current game state to storage.
  *
  * Updates both lastSaved and lastPlayed timestamps before saving.
  * Saves to the currently active slot.
  *
  * @returns true if save was successful, false if it failed (including if no slot is active)
  */
-export function saveGame(): boolean {
+export async function saveGame(): Promise<boolean> {
   if (activeSlotIndex === null) {
     console.warn('[SaveSystem] Cannot save - no active slot set');
     return false;
@@ -251,7 +281,8 @@ export function saveGame(): boolean {
 
     // Serialize and save to the active slot
     const serialized = JSON.stringify(state);
-    localStorage.setItem(getSlotKey(activeSlotIndex), serialized);
+    const storage = getStorage();
+    await storage.setItem(getSlotKey(activeSlotIndex), serialized);
 
     console.log('[SaveSystem] Game saved successfully to slot:', activeSlotIndex);
     return true;
@@ -346,14 +377,15 @@ function migrateState(state: GameState): GameState {
  * @param slotIndex - The slot index (0-2) to load from
  * @returns The loaded GameState if found and valid, null otherwise
  */
-export function loadGame(slotIndex: number): GameState | null {
+export async function loadGame(slotIndex: number): Promise<GameState | null> {
   if (slotIndex < 0 || slotIndex >= MAX_SLOTS) {
     console.error('[SaveSystem] Invalid slot index for loading:', slotIndex);
     return null;
   }
 
   try {
-    const serialized = localStorage.getItem(getSlotKey(slotIndex));
+    const storage = getStorage();
+    const serialized = await storage.getItem(getSlotKey(slotIndex));
 
     if (!serialized) {
       console.log('[SaveSystem] No save data found in slot:', slotIndex);
@@ -386,8 +418,9 @@ export function loadGame(slotIndex: number): GameState | null {
  *
  * @returns true if at least one slot has save data, false otherwise
  */
-export function hasSaveData(): boolean {
-  return getFirstOccupiedSlot() !== null;
+export async function hasSaveData(): Promise<boolean> {
+  const occupiedSlot = await getFirstOccupiedSlot();
+  return occupiedSlot !== null;
 }
 
 /**
@@ -396,9 +429,9 @@ export function hasSaveData(): boolean {
  *
  * @deprecated Use deleteSlot(slotIndex) instead for explicit slot management
  */
-export function deleteSave(): void {
+export async function deleteSave(): Promise<void> {
   if (activeSlotIndex !== null) {
-    deleteSlot(activeSlotIndex);
+    await deleteSlot(activeSlotIndex);
   } else {
     console.warn('[SaveSystem] Cannot delete - no active slot set');
   }
@@ -414,14 +447,14 @@ export function deleteSave(): void {
  *
  * @returns A base64-encoded string of the save data, or empty string if no active slot
  */
-export function exportSave(): string {
+export async function exportSave(): Promise<string> {
   if (activeSlotIndex === null) {
     console.warn('[SaveSystem] Cannot export - no active slot set');
     return '';
   }
 
   // Save first to ensure we have the latest state
-  saveGame();
+  await saveGame();
 
   const state = getSerializableState();
   const serialized = JSON.stringify(state);
@@ -441,7 +474,7 @@ export function exportSave(): string {
  * @param targetSlotIndex - Optional slot index to import into (uses first empty slot if not provided)
  * @returns true if import was successful, false if it failed
  */
-export function importSave(base64String: string, targetSlotIndex?: number): boolean {
+export async function importSave(base64String: string, targetSlotIndex?: number): Promise<boolean> {
   // Determine target slot
   let slotIndex: number;
   if (targetSlotIndex !== undefined) {
@@ -451,7 +484,7 @@ export function importSave(base64String: string, targetSlotIndex?: number): bool
     }
     slotIndex = targetSlotIndex;
   } else {
-    const emptySlot = getFirstEmptySlot();
+    const emptySlot = await getFirstEmptySlot();
     if (emptySlot === null) {
       console.error('[SaveSystem] Cannot import - all slots are full');
       return false;
@@ -477,7 +510,7 @@ export function importSave(base64String: string, targetSlotIndex?: number): bool
 
     // Set active slot and save
     activeSlotIndex = slotIndex;
-    saveGame();
+    await saveGame();
 
     console.log('[SaveSystem] Save imported successfully to slot:', slotIndex);
     return true;
@@ -502,8 +535,11 @@ function startAutoSave(): void {
   }
 
   autoSaveIntervalId = setInterval(() => {
-    saveGame();
-    console.log('[SaveSystem] Auto-save triggered');
+    saveGame().then(() => {
+      console.log('[SaveSystem] Auto-save triggered');
+    }).catch((error) => {
+      console.error('[SaveSystem] Auto-save failed:', error);
+    });
   }, AUTO_SAVE_INTERVAL_MS);
 
   console.log('[SaveSystem] Auto-save started (interval: ' + AUTO_SAVE_INTERVAL_MS / 1000 + 's)');
@@ -530,17 +566,26 @@ function stopAutoSave(): void {
  */
 function handleVisibilityChange(): void {
   if (document.visibilityState === 'hidden') {
-    saveGame();
-    console.log('[SaveSystem] Saved on tab blur');
+    saveGame().then(() => {
+      console.log('[SaveSystem] Saved on tab blur');
+    }).catch((error) => {
+      console.error('[SaveSystem] Failed to save on tab blur:', error);
+    });
   }
 }
 
 /**
  * Handler for beforeunload events.
  * Saves when the page is about to be closed.
+ * Note: This uses fire-and-forget since beforeunload cannot wait for async.
+ * The LocalStorageAdapter completes synchronously, so this works for web.
  */
 function handleBeforeUnload(): void {
-  saveGame();
+  // Fire-and-forget - beforeunload can't wait for promises
+  // LocalStorageAdapter operations complete synchronously
+  saveGame().catch((error) => {
+    console.error('[SaveSystem] Failed to save on page unload:', error);
+  });
   console.log('[SaveSystem] Saved on page unload');
 }
 
@@ -599,12 +644,12 @@ export function destroySaveSystem(): void {
  *
  * @returns The lastPlayed timestamp from the active slot, or null if no active slot or never played
  */
-export function getLastPlayedTimestamp(): number | null {
+export async function getLastPlayedTimestamp(): Promise<number | null> {
   if (activeSlotIndex === null) {
     return null;
   }
 
-  const metadata = loadSlotMetadata(activeSlotIndex);
+  const metadata = await loadSlotMetadata(activeSlotIndex);
   if (metadata.isEmpty) {
     return null;
   }

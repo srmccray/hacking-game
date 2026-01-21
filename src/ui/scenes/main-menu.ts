@@ -106,9 +106,9 @@ const ASCII_TITLE = `
 /**
  * Build the menu items based on current save state.
  */
-function buildMenuItems(): MenuItem[] {
+async function buildMenuItems(): Promise<MenuItem[]> {
   const items: MenuItem[] = [];
-  const saveExists = hasSaveData();
+  const saveExists = await hasSaveData();
 
   items.push({
     id: 'new-game',
@@ -161,19 +161,19 @@ function buildMenuItems(): MenuItem[] {
 async function handleNewGame(): Promise<void> {
   console.log('[MainMenu] New Game selected');
 
-  showSlotSelectionDialog(
+  await showSlotSelectionDialog(
     'new-game',
-    (slotIndex: number) => {
-      const slot = loadSlotMetadata(slotIndex);
+    async (slotIndex: number) => {
+      const slot = await loadSlotMetadata(slotIndex);
 
       // If slot is occupied, ask for confirmation to overwrite
       if (!slot.isEmpty) {
         showConfirmDialog(
           'OVERWRITE SAVE?',
           `This will delete "${slot.playerName}" and start a new game.`,
-          () => {
+          async () => {
             // Delete the old slot and start name input
-            deleteSlot(slotIndex);
+            await deleteSlot(slotIndex);
             promptForNameAndStartGame(slotIndex);
           }
         );
@@ -204,7 +204,7 @@ function promptForNameAndStartGame(slotIndex: number): void {
 
       // Set active slot and save
       setActiveSlot(slotIndex);
-      saveGame();
+      await saveGame();
 
       // Start the game
       if (config?.onNewGame) {
@@ -224,13 +224,13 @@ function promptForNameAndStartGame(slotIndex: number): void {
 async function handleContinue(): Promise<void> {
   console.log('[MainMenu] Continue selected');
 
-  showSlotSelectionDialog(
+  await showSlotSelectionDialog(
     'continue',
     async (slotIndex: number) => {
       console.log('[MainMenu] Loading save from slot:', slotIndex);
 
       // Load the game state from the selected slot
-      const loadedState = loadGame(slotIndex);
+      const loadedState = await loadGame(slotIndex);
 
       if (loadedState) {
         // Load the state into the store
@@ -254,22 +254,22 @@ async function handleContinue(): Promise<void> {
  * Handle Delete Save selection.
  * Shows slot selection (for occupied slots), then confirms deletion.
  */
-function handleDeleteSave(): void {
+async function handleDeleteSave(): Promise<void> {
   console.log('[MainMenu] Delete Save selected');
 
-  showSlotSelectionDialog(
+  await showSlotSelectionDialog(
     'continue', // Use 'continue' mode to only show occupied slots
-    (slotIndex: number) => {
-      const slot = loadSlotMetadata(slotIndex);
+    async (slotIndex: number) => {
+      const slot = await loadSlotMetadata(slotIndex);
 
       showConfirmDialog(
         'DELETE SAVE DATA?',
         `This will permanently delete "${slot.playerName}".`,
-        () => {
-          deleteSlot(slotIndex);
+        async () => {
+          await deleteSlot(slotIndex);
           console.log('[MainMenu] Save deleted from slot:', slotIndex);
           // Rebuild menu to potentially remove Continue/Delete options if no saves left
-          rebuildMenu();
+          await rebuildMenu();
         }
       );
     },
@@ -335,7 +335,7 @@ const VALID_NAME_CHARS = /^[a-zA-Z0-9 _-]$/;
 let slotSelectionMode: 'new-game' | 'continue' | null = null;
 let slotSelectionIndex = 0;
 let slotSelectionTexts: Text[][] = []; // Array of text elements per slot
-let slotSelectionOnSelect: ((slotIndex: number) => void) | null = null;
+let slotSelectionOnSelect: ((slotIndex: number) => void | Promise<void>) | null = null;
 let slotSelectionOnCancel: (() => void) | null = null;
 let slotSelectionSlots: SaveSlotMetadata[] = [];
 let slotSelectionCancelText: Text | null = null;
@@ -956,12 +956,12 @@ function updateSlotSelectionVisuals(): void {
  * @param onCancel - Called when canceled
  * @param customTitle - Optional custom title for the dialog (overrides mode-based title)
  */
-export function showSlotSelectionDialog(
+export async function showSlotSelectionDialog(
   mode: 'new-game' | 'continue',
-  onSelect: (slotIndex: number) => void,
+  onSelect: (slotIndex: number) => void | Promise<void>,
   onCancel: () => void,
   customTitle?: string
-): void {
+): Promise<void> {
   if (!menuContainer) return;
 
   closeDialog();
@@ -970,7 +970,7 @@ export function showSlotSelectionDialog(
   slotSelectionMode = mode;
   slotSelectionOnSelect = onSelect;
   slotSelectionOnCancel = onCancel;
-  slotSelectionSlots = listSaveSlots();
+  slotSelectionSlots = await listSaveSlots();
   slotSelectionTexts = [];
 
   // For new game, default to first empty slot; for continue, first occupied
@@ -1114,7 +1114,7 @@ export function showSlotSelectionDialog(
 /**
  * Handle slot selection confirm.
  */
-function handleSlotSelectionConfirm(): void {
+async function handleSlotSelectionConfirm(): Promise<void> {
   // If Cancel button is selected (index = MAX_SLOTS), trigger cancel
   if (slotSelectionIndex === MAX_SLOTS) {
     handleSlotSelectionCancel();
@@ -1134,7 +1134,7 @@ function handleSlotSelectionConfirm(): void {
   closeDialog();
 
   if (callback) {
-    callback(selectedIndex);
+    await callback(selectedIndex);
   }
 }
 
@@ -1298,7 +1298,7 @@ function createNavigationHint(): Text {
 /**
  * Rebuild the menu (e.g., after save deletion).
  */
-function rebuildMenu(): void {
+async function rebuildMenu(): Promise<void> {
   if (!menuContainer) return;
 
   // Remove old menu display
@@ -1309,7 +1309,7 @@ function rebuildMenu(): void {
   }
 
   // Rebuild menu items
-  menuItems = buildMenuItems();
+  menuItems = await buildMenuItems();
   selectedIndex = 0;
 
   // Create new menu display
@@ -1567,8 +1567,8 @@ export function createMainMenuScene(menuConfig: MainMenuConfig): Scene {
   menuContainer = new Container();
   menuContainer.label = 'main-menu';
 
-  // Build menu items based on save state
-  menuItems = buildMenuItems();
+  // Initialize with empty menu items (will be populated on onEnter)
+  menuItems = [];
   selectedIndex = 0;
 
   // Add background
@@ -1582,9 +1582,7 @@ export function createMainMenuScene(menuConfig: MainMenuConfig): Scene {
   const title = createTitle();
   menuContainer.addChild(title);
 
-  // Add menu items
-  const menuDisplay = createMenuDisplay();
-  menuContainer.addChild(menuDisplay);
+  // Menu items will be added on onEnter (after async buildMenuItems)
 
   // Add navigation hint
   const hint = createNavigationHint();
@@ -1594,11 +1592,11 @@ export function createMainMenuScene(menuConfig: MainMenuConfig): Scene {
   const scene: Scene = {
     container: menuContainer,
 
-    onEnter: () => {
+    onEnter: async () => {
       console.log('[MainMenu] Scene entered');
 
-      // Rebuild menu items in case save state changed
-      rebuildMenu();
+      // Rebuild menu items in case save state changed (async)
+      await rebuildMenu();
 
       // Add keyboard listener
       keydownHandler = handleKeydown;

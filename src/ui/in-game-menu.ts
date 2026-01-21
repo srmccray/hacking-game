@@ -140,9 +140,9 @@ function handleResume(): void {
 /**
  * Handle Save Game selection.
  */
-function handleSaveGame(): void {
+async function handleSaveGame(): Promise<void> {
   console.log('[InGameMenu] Save Game selected');
-  const success = saveGame();
+  const success = await saveGame();
 
   if (success) {
     showFeedback('Game Saved!');
@@ -378,7 +378,7 @@ async function confirmExit(): Promise<void> {
   console.log('[InGameMenu] Exit confirmed');
 
   // Save the game before exiting
-  saveGame();
+  await saveGame();
 
   // Close dialogs and menu
   closeConfirm();
