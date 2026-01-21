@@ -18,22 +18,7 @@ import Decimal from 'break_eternity.js';
 import { useGameStore, selectTopScores } from './game-state';
 import { getAutoGenerationMultiplier } from './upgrades';
 import { ZERO, multiply, divide } from './resource-manager';
-
-// ============================================================================
-// Configuration
-// ============================================================================
-
-/**
- * Divisor for converting score sum to per-second rate.
- * Higher value = slower generation. Tunable for balance.
- */
-const SCORE_TO_RATE_DIVISOR = 100;
-
-/**
- * Minigame IDs that contribute to money generation.
- * For MVP, only Code Breaker generates money.
- */
-const MONEY_GENERATING_MINIGAMES = ['code-breaker'];
+import { AUTO_GENERATION_CONFIG } from './game-config';
 
 // ============================================================================
 // Rate Calculation
@@ -61,7 +46,7 @@ export function calculateBaseRateFromScores(minigameId: string): Decimal {
   );
 
   // Convert to per-second rate
-  return divide(scoreSum, SCORE_TO_RATE_DIVISOR);
+  return divide(scoreSum, AUTO_GENERATION_CONFIG.scoreToRateDivisor);
 }
 
 /**
@@ -74,7 +59,7 @@ export function getMoneyGenerationRate(): Decimal {
   // Calculate base rate from all money-generating minigames
   let baseRate = new Decimal(0);
 
-  for (const minigameId of MONEY_GENERATING_MINIGAMES) {
+  for (const minigameId of AUTO_GENERATION_CONFIG.moneyGeneratingMinigames) {
     const minigameRate = calculateBaseRateFromScores(minigameId);
     baseRate = baseRate.add(minigameRate);
   }
@@ -146,7 +131,7 @@ export function getGenerationBreakdown(): {
   const contributions: Record<string, Decimal> = {};
   let baseRate = new Decimal(0);
 
-  for (const minigameId of MONEY_GENERATING_MINIGAMES) {
+  for (const minigameId of AUTO_GENERATION_CONFIG.moneyGeneratingMinigames) {
     const rate = calculateBaseRateFromScores(minigameId);
     contributions[minigameId] = rate;
     baseRate = baseRate.add(rate);

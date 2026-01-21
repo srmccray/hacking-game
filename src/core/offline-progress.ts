@@ -23,35 +23,24 @@
 import Decimal from 'break_eternity.js';
 import { useGameStore } from './game-state';
 import { getMoneyGenerationRate } from './auto-generation';
-import {
-  decimalToString,
-  multiply,
-  ZERO,
-  MAX_OFFLINE_SECONDS,
-  OFFLINE_EFFICIENCY,
-} from './resource-manager';
+import { decimalToString, multiply, ZERO } from './resource-manager';
+import { OFFLINE_CONFIG } from './game-config';
 
 // ============================================================================
-// Configuration
+// Configuration Re-exports
 // ============================================================================
-
-/**
- * Minimum offline time (in seconds) to trigger the welcome-back modal.
- * Absences shorter than this are silently processed.
- */
-const MIN_OFFLINE_SECONDS_FOR_MODAL = 60; // 1 minute
 
 /**
  * Maximum offline time in seconds (8 hours).
- * Re-exported from resource-manager for convenience.
+ * Re-exported from game-config for convenience.
  */
-export const MAX_OFFLINE_TIME_SECONDS = MAX_OFFLINE_SECONDS;
+export const MAX_OFFLINE_TIME_SECONDS = OFFLINE_CONFIG.maxSeconds;
 
 /**
  * Efficiency multiplier for offline earnings (50%).
- * Re-exported from resource-manager for convenience.
+ * Re-exported from game-config for convenience.
  */
-export const OFFLINE_EFFICIENCY_MULTIPLIER = OFFLINE_EFFICIENCY;
+export const OFFLINE_EFFICIENCY_MULTIPLIER = OFFLINE_CONFIG.efficiencyMultiplier;
 
 // ============================================================================
 // Types
@@ -232,10 +221,10 @@ export function calculateOfflineProgress(
 
   // Calculate earnings: rate * time * efficiency
   const rawMoneyEarnings = multiply(moneyRate, effectiveSeconds);
-  const moneyEarnings = multiply(rawMoneyEarnings, OFFLINE_EFFICIENCY);
+  const moneyEarnings = multiply(rawMoneyEarnings, OFFLINE_CONFIG.efficiencyMultiplier);
 
   // Determine if modal should be shown
-  const shouldShowModal = totalSecondsAway >= MIN_OFFLINE_SECONDS_FOR_MODAL;
+  const shouldShowModal = totalSecondsAway >= OFFLINE_CONFIG.minSecondsForModal;
 
   return {
     wasCalculated: true,
@@ -323,7 +312,7 @@ export function shouldShowWelcomeBackModal(
   }
 
   const elapsedSeconds = (Date.now() - lastPlayedTimestamp) / 1000;
-  return elapsedSeconds >= MIN_OFFLINE_SECONDS_FOR_MODAL;
+  return elapsedSeconds >= OFFLINE_CONFIG.minSecondsForModal;
 }
 
 /**
@@ -342,7 +331,7 @@ export function getMaxOfflineTimeString(): string {
  * @returns Percentage string (e.g., "50%")
  */
 export function getEfficiencyPercentString(): string {
-  const percent = OFFLINE_EFFICIENCY.mul(100).toNumber();
+  const percent = OFFLINE_CONFIG.efficiencyMultiplier.mul(100).toNumber();
   return `${percent}%`;
 }
 
@@ -361,7 +350,7 @@ export function previewOfflineEarnings(seconds: number): {
   const moneyRate = getMoneyGenerationRate();
 
   const rawMoney = multiply(moneyRate, cappedSeconds);
-  const moneyWithEfficiency = multiply(rawMoney, OFFLINE_EFFICIENCY);
+  const moneyWithEfficiency = multiply(rawMoney, OFFLINE_CONFIG.efficiencyMultiplier);
 
   return {
     money: rawMoney,

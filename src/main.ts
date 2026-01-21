@@ -164,17 +164,30 @@ function stopGameLoop(): void {
 // Debug Controls
 // ============================================================================
 
+/** Cleanup function for debug controls */
+let cleanupDebugControls: (() => void) | null = null;
+
 /**
  * Set up debug keyboard controls for testing.
  * Press 'M' to add money, 'R' to refresh HUD.
+ * Returns a cleanup function to remove the event listener.
  */
 function setupDebugControls(): void {
-  window.addEventListener('keydown', (event) => {
+  // Clean up any existing listener first
+  if (cleanupDebugControls) {
+    cleanupDebugControls();
+  }
+
+  const handleDebugKeydown = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase();
 
     // Only handle debug keys if not holding modifiers and not in an input field
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      return;
+    }
 
     switch (key) {
       case 'm':
@@ -207,9 +220,28 @@ function setupDebugControls(): void {
         console.log('Debug: Toggled upgrade panel');
         break;
     }
-  });
+  };
+
+  window.addEventListener('keydown', handleDebugKeydown);
+
+  // Store cleanup function
+  cleanupDebugControls = (): void => {
+    window.removeEventListener('keydown', handleDebugKeydown);
+    console.log('Debug controls cleaned up');
+  };
 
   console.log('Debug controls enabled: M=add money, T=add technique, N=add renown, R=refresh HUD, U=toggle upgrades');
+}
+
+/**
+ * Clean up debug controls.
+ * Should be called during HMR dispose or game shutdown.
+ */
+function destroyDebugControls(): void {
+  if (cleanupDebugControls) {
+    cleanupDebugControls();
+    cleanupDebugControls = null;
+  }
 }
 
 // ============================================================================
@@ -464,6 +496,9 @@ if (import.meta.hot) {
     // Stop game loop and tick engine
     stopGameLoop();
     stopTickEngine();
+
+    // Clean up debug controls
+    destroyDebugControls();
 
     // Clean up all systems on HMR to prevent duplicates
     destroyInGameMenu();

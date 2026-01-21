@@ -26,7 +26,7 @@ import { DEFAULT_GAME_STATE } from './types';
 
 function createMockGameState(overrides?: Partial<GameState>): GameState {
   return {
-    ...JSON.parse(JSON.stringify(DEFAULT_GAME_STATE)),
+    ...structuredClone(DEFAULT_GAME_STATE),
     ...overrides,
   } as GameState;
 }

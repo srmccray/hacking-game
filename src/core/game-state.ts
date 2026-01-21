@@ -90,9 +90,10 @@ export function insertScore(scores: string[], newScore: string): string[] {
 
 /**
  * Deep clone the default state to avoid mutations.
+ * Uses structuredClone for better performance and safety.
  */
 function getInitialState(): GameState {
-  return JSON.parse(JSON.stringify(DEFAULT_GAME_STATE)) as GameState;
+  return structuredClone(DEFAULT_GAME_STATE);
 }
 
 // ============================================================================

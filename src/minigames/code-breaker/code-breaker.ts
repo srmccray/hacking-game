@@ -31,41 +31,23 @@ import {
   type MinigameConfig,
   type MinigameEventType,
 } from '../base-minigame';
+import { CODE_BREAKER_CONFIG } from '../../core/game-config';
+
+/** Maximum number of top scores to track (re-exported for convenience) */
+export const MAX_TOP_SCORES = CODE_BREAKER_CONFIG.maxTopScores;
 
 // ============================================================================
-// Configuration
+// Minigame Configuration (uses values from centralized game-config)
 // ============================================================================
 
-/** Number of digits in each sequence */
-const SEQUENCE_LENGTH = 5;
-
-/** Time limit in milliseconds (60 seconds) */
-const TIME_LIMIT_MS = 60 * 1000;
-
-/** Base points for completing a sequence */
-const BASE_SEQUENCE_POINTS = 100;
-
-/** Points per digit matched correctly */
-const POINTS_PER_DIGIT = 10;
-
-/** Score to Money conversion ratio (score * ratio = money) */
-const SCORE_TO_MONEY_RATIO = 1;
-
-/** Maximum number of top scores to track */
-export const MAX_TOP_SCORES = 5;
-
-// ============================================================================
-// Code Breaker Configuration
-// ============================================================================
-
-const CODE_BREAKER_CONFIG: MinigameConfig = {
+const MINIGAME_CONFIG: MinigameConfig = {
   id: 'code-breaker',
   name: 'Code Breaker',
   description: 'Match number sequences under time pressure. Build combos for bonus points!',
-  timeLimitMs: TIME_LIMIT_MS,
+  timeLimitMs: CODE_BREAKER_CONFIG.timeLimitMs,
   primaryResource: 'money',
-  basePoints: BASE_SEQUENCE_POINTS,
-  scoreToResourceRatio: SCORE_TO_MONEY_RATIO,
+  basePoints: CODE_BREAKER_CONFIG.baseSequencePoints,
+  scoreToResourceRatio: CODE_BREAKER_CONFIG.scoreToMoneyRatio,
 };
 
 // ============================================================================
@@ -92,7 +74,7 @@ export class CodeBreaker extends BaseMinigame {
   private _lastInputCorrect: boolean | null = null;
 
   constructor() {
-    super(CODE_BREAKER_CONFIG);
+    super(MINIGAME_CONFIG);
   }
 
   // ========================================================================
@@ -126,7 +108,7 @@ export class CodeBreaker extends BaseMinigame {
 
   /** Get the sequence length */
   get sequenceLength(): number {
-    return SEQUENCE_LENGTH;
+    return CODE_BREAKER_CONFIG.sequenceLength;
   }
 
   // ========================================================================
@@ -186,10 +168,10 @@ export class CodeBreaker extends BaseMinigame {
     this._currentPosition++;
 
     // Award points for correct digit
-    this.addScore(POINTS_PER_DIGIT);
+    this.addScore(CODE_BREAKER_CONFIG.pointsPerDigit);
 
     // Check if sequence is complete
-    if (this._currentPosition >= SEQUENCE_LENGTH) {
+    if (this._currentPosition >= CODE_BREAKER_CONFIG.sequenceLength) {
       this.handleSequenceComplete();
     } else {
       // Increment combo for correct digit (but sequence not complete)
@@ -217,7 +199,7 @@ export class CodeBreaker extends BaseMinigame {
     this._sequencesCompleted++;
 
     // Award bonus points for completing sequence (with combo!)
-    this.addScore(BASE_SEQUENCE_POINTS);
+    this.addScore(CODE_BREAKER_CONFIG.baseSequencePoints);
 
     // Increment combo for sequence completion
     this.incrementCombo();
@@ -249,7 +231,7 @@ export class CodeBreaker extends BaseMinigame {
     this._inputSequence = [];
     this._currentPosition = 0;
 
-    for (let i = 0; i < SEQUENCE_LENGTH; i++) {
+    for (let i = 0; i < CODE_BREAKER_CONFIG.sequenceLength; i++) {
       this._targetSequence.push(Math.floor(Math.random() * 10));
     }
   }
@@ -273,7 +255,7 @@ export class CodeBreaker extends BaseMinigame {
    * Get the minigame ID.
    */
   static get MINIGAME_ID(): string {
-    return CODE_BREAKER_CONFIG.id;
+    return MINIGAME_CONFIG.id;
   }
 
   /**
@@ -283,7 +265,7 @@ export class CodeBreaker extends BaseMinigame {
    * @returns The money amount as a string
    */
   static calculateReward(score: number): string {
-    return String(Math.floor(score * SCORE_TO_MONEY_RATIO));
+    return String(Math.floor(score * CODE_BREAKER_CONFIG.scoreToMoneyRatio));
   }
 }
 

@@ -211,7 +211,7 @@ function getSerializableState(): GameState {
     lastPlayed: store.lastPlayed,
     playerName: store.playerName,
     resources: { ...store.resources },
-    minigames: JSON.parse(JSON.stringify(store.minigames)),
+    minigames: structuredClone(store.minigames),
     upgrades: {
       equipment: { ...store.upgrades.equipment },
       apartment: { ...store.upgrades.apartment },
@@ -642,7 +642,8 @@ export function hardReset(): void {
 /**
  * Get a fresh copy of the default game state.
  * Useful for comparisons or testing.
+ * Uses structuredClone for better performance and safety.
  */
 export function getDefaultState(): GameState {
-  return JSON.parse(JSON.stringify(DEFAULT_GAME_STATE)) as GameState;
+  return structuredClone(DEFAULT_GAME_STATE);
 }
