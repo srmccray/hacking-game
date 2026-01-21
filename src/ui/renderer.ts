@@ -172,9 +172,22 @@ export function getStage(): Container {
  */
 export function getRootContainer(): Container {
   if (!rootContainer) {
-    throw new Error('Renderer not initialized. Call initRenderer() first.');
+    throw new Error('Renderer not initialized. Call initRenderer() or setRootContainer() first.');
   }
   return rootContainer;
+}
+
+/**
+ * Set the root container externally.
+ * Use this when the Game class creates its own PixiJS Application
+ * but other modules need access to the root container.
+ *
+ * @param container - The root Container to use
+ */
+export function setRootContainer(container: Container): void {
+  rootContainer = container;
+  isInitialized = true;
+  console.log('Root container set externally');
 }
 
 /**

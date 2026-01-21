@@ -80,6 +80,12 @@ let menuTexts: Text[] = [];
 let keydownHandler: ((event: KeyboardEvent) => void) | null = null;
 let isInitialized = false;
 
+/**
+ * Timestamp when the menu was opened.
+ * Used to prevent the same Escape keypress from immediately closing the menu.
+ */
+let menuOpenedTime: number = 0;
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -546,19 +552,25 @@ async function executeSelectedItem(): Promise<void> {
 // ============================================================================
 
 /**
- * Handle keyboard input.
+ * Handle keyboard input for the in-game menu.
+ * Only handles navigation when menu is visible.
+ * Opening the menu is handled by InputManager in Game.ts to avoid race conditions.
  */
 function handleKeydown(event: KeyboardEvent): void {
-  // If not visible, check for Escape to open
+  // If not visible, don't process any keys
+  // Opening is handled by InputManager in Game.ts
   if (!isVisible) {
-    if (event.key === 'Escape') {
-      // Check if we can open the menu
-      if (canOpen()) {
-        event.preventDefault();
-        showInGameMenu();
-      }
-    }
     return;
+  }
+
+  // Prevent the same Escape keypress that opened the menu from also closing it
+  // This handles the race condition where InputManager and this handler both process the same event
+  // We use a small time threshold (50ms) to detect same-event-loop processing
+  if (event.key === 'Escape') {
+    const timeSinceOpen = performance.now() - menuOpenedTime;
+    if (timeSinceOpen < 50) {
+      return;
+    }
   }
 
   // Handle confirmation dialog
@@ -597,6 +609,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 
   // Handle menu navigation
+  // Note: Opening is handled by InputManager in Game.ts, but closing is handled here
   switch (event.key) {
     case 'Escape':
       event.preventDefault();
@@ -693,9 +706,11 @@ export function showInGameMenu(): void {
   if (isVisible || !isInitialized) return;
 
   if (!canOpen()) {
-    console.log('[InGameMenu] Cannot open menu right now');
     return;
   }
+
+  // Track when the menu was opened to prevent same-event closure race condition
+  menuOpenedTime = performance.now();
 
   // Create menu container
   menuContainer = new Container();
