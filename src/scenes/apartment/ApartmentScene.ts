@@ -436,11 +436,11 @@ class ApartmentScene implements Scene {
    * Create all stations in the apartment.
    */
   private createStations(): void {
-    // Desk station (launches Code Breaker)
+    // Desk station (launches minigame selection menu)
     const desk = new Station('desk', APARTMENT_CONFIG.stations.desk.x, APARTMENT_CONFIG.stations.desk.y, {
       onInteract: (): void => {
-        console.log('[ApartmentScene] Desk interaction - launching Code Breaker');
-        void this.game.switchScene('code-breaker');
+        console.log('[ApartmentScene] Desk interaction - opening minigame selection');
+        void this.game.switchScene('minigame-selection');
       },
     });
     this.stationManager.addStation(desk);

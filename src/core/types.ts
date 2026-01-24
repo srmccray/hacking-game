@@ -418,6 +418,12 @@ export function createInitialGameState(): GameState {
         playCount: 0,
         upgrades: {},
       },
+      'code-runner': {
+        unlocked: true, // Testing - unlocked by default
+        topScores: [],
+        playCount: 0,
+        upgrades: {},
+      },
     },
 
     upgrades: {

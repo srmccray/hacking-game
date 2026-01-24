@@ -35,7 +35,8 @@ import { createGameEventBus, type GameEventBus } from '../events/game-events';
 import type { GameInstance } from '../core/types';
 import { createMainMenuScene } from '../scenes/main-menu';
 import { createApartmentScene } from '../scenes/apartment';
-import { MinigameRegistry, registerCodeBreaker, createCodeBreakerScene } from '../minigames';
+import { createMinigameSelectionScene } from '../scenes/minigame-selection';
+import { MinigameRegistry, registerCodeBreaker, createCodeBreakerScene, registerCodeRunner, createCodeRunnerScene } from '../minigames';
 import { TickEngine } from '../core/progression';
 import { UpgradePanel, InGameMenu, WelcomeBackModal } from '../ui';
 import {
@@ -226,6 +227,7 @@ export class Game implements GameInstance {
     // 8. Create minigame registry and register minigames
     const minigameRegistry = new MinigameRegistry();
     registerCodeBreaker(minigameRegistry);
+    registerCodeRunner(minigameRegistry);
     console.log('[Game] Minigame registry created');
 
     // 9. Create tick engine for idle progression
@@ -281,9 +283,19 @@ export class Game implements GameInstance {
       return createCodeBreakerScene(game);
     });
 
+    // Code Runner minigame scene
+    this.sceneManager.register('code-runner', () => {
+      return createCodeRunnerScene(game);
+    });
+
     // Apartment scene (main gameplay hub)
     this.sceneManager.register('apartment', () => {
       return createApartmentScene(game);
+    });
+
+    // Minigame selection menu
+    this.sceneManager.register('minigame-selection', () => {
+      return createMinigameSelectionScene(game);
     });
   }
 

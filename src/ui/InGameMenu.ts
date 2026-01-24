@@ -377,9 +377,9 @@ export class InGameMenu {
     // Update selection visual
     this.updateMenuSelection();
 
-    // Hint text
+    // Hint text (shortened to fit menu width)
     const hint = new Text({
-      text: 'Esc: Close | Arrows: Navigate | Enter: Select',
+      text: 'Esc: Close  |  Arrows / Enter',
       style: terminalSmallStyle,
     });
     hint.anchor.set(0.5, 0);
@@ -495,10 +495,22 @@ export class InGameMenu {
     box.eventMode = 'static';
     this.confirmContainer.addChild(box);
 
-    // Title
+    // Title - use smaller font to fit within dialog width (320px box - 40px padding = 280px max)
+    const dialogTitleStyle = new TextStyle({
+      fontFamily: FONT_FAMILY,
+      fontSize: 20, // Smaller than titleStyle (32px) to fit within dialog
+      fill: COLORS.TERMINAL_GREEN,
+      fontWeight: 'bold',
+      dropShadow: {
+        alpha: 0.7,
+        blur: 4,
+        color: COLORS.TERMINAL_BRIGHT,
+        distance: 0,
+      },
+    });
     const title = new Text({
       text: 'EXIT TO MAIN MENU?',
-      style: titleStyle,
+      style: dialogTitleStyle,
     });
     title.anchor.set(0.5, 0);
     title.x = width / 2;
@@ -551,9 +563,9 @@ export class InGameMenu {
     this.confirmContainer.addChild(noText);
     this.confirmTexts.push(noText);
 
-    // Hint
+    // Hint (shortened to fit dialog width)
     const hint = new Text({
-      text: 'Arrow keys or Y/N, Enter to confirm',
+      text: 'Y/N or Arrows + Enter',
       style: terminalSmallStyle,
     });
     hint.anchor.set(0.5, 0);

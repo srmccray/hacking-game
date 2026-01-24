@@ -77,6 +77,10 @@ const LAYOUT = {
   HEADER_HEIGHT: 50,
   /** Category label height */
   CATEGORY_HEIGHT: 30,
+  /** Maximum width for upgrade name text */
+  NAME_MAX_WIDTH: 180,
+  /** Gap between name and level text */
+  NAME_LEVEL_GAP: 15,
 };
 
 // ============================================================================
@@ -92,6 +96,55 @@ interface UpgradeRow {
   effectText: Text;
   button: Graphics;
   buttonText: Text;
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Truncate a Text object's content to fit within a maximum width.
+ * Adds ellipsis ("...") if truncation is necessary.
+ *
+ * @param textObject - The PixiJS Text object to truncate
+ * @param maxWidth - Maximum allowed width in pixels
+ * @param originalText - The original full text string
+ */
+function truncateTextWithEllipsis(
+  textObject: Text,
+  maxWidth: number,
+  originalText: string
+): void {
+  // First, try the full text
+  textObject.text = originalText;
+
+  if (textObject.width <= maxWidth) {
+    return; // No truncation needed
+  }
+
+  // Binary search for the right length
+  let low = 0;
+  let high = originalText.length;
+  const ellipsis = '...';
+
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const truncated = originalText.slice(0, mid) + ellipsis;
+    textObject.text = truncated;
+
+    if (textObject.width <= maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  // Set final truncated text
+  if (low < originalText.length) {
+    textObject.text = originalText.slice(0, low) + ellipsis;
+  } else {
+    textObject.text = originalText;
+  }
 }
 
 // ============================================================================
@@ -280,11 +333,12 @@ export class UpgradePanel {
     bg.stroke();
     rowContainer.addChild(bg);
 
-    // Upgrade name
+    // Upgrade name (with truncation to prevent overflow)
     const nameText = new Text({
       text: upgrade.name,
       style: terminalBrightStyle,
     });
+    truncateTextWithEllipsis(nameText, LAYOUT.NAME_MAX_WIDTH, upgrade.name);
     nameText.x = 10;
     nameText.y = 10;
     rowContainer.addChild(nameText);
@@ -298,7 +352,7 @@ export class UpgradePanel {
       text: levelString,
       style: terminalDimStyle,
     });
-    levelText.x = nameText.x + nameText.width + 15;
+    levelText.x = nameText.x + nameText.width + LAYOUT.NAME_LEVEL_GAP;
     levelText.y = 12;
     rowContainer.addChild(levelText);
 

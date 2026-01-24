@@ -43,3 +43,15 @@ export {
   type DigitState,
   type CodeBreakerEventType,
 } from './code-breaker';
+
+// Code Runner minigame
+export {
+  CodeRunnerGame,
+  createCodeRunnerGame,
+  createCodeRunnerScene,
+  CODE_RUNNER_DEFINITION,
+  registerCodeRunner,
+  type Obstacle,
+  type CodeRunnerState,
+  type CodeRunnerEventType,
+} from './code-runner';

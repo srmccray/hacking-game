@@ -293,7 +293,7 @@ export class WelcomeBackModal {
     timeLabel.y = currentY;
     this.container.addChild(timeLabel);
 
-    // Time away value
+    // Time away value (right-anchored to prevent overflow)
     let timeText = result.formattedTimeAway;
     if (result.wasCapped) {
       timeText += ' (max 8h)';
@@ -302,7 +302,8 @@ export class WelcomeBackModal {
       text: timeText,
       style: terminalStyle,
     });
-    timeValue.x = contentX + 120;
+    timeValue.anchor.set(1, 0);
+    timeValue.x = contentX + contentWidth;
     timeValue.y = currentY;
     this.container.addChild(timeValue);
     currentY += LAYOUT.LINE_HEIGHT;
@@ -316,11 +317,13 @@ export class WelcomeBackModal {
     effLabel.y = currentY;
     this.container.addChild(effLabel);
 
+    // Efficiency value (right-anchored to prevent overflow)
     const effValue = new Text({
       text: `${Math.round(result.efficiency * 100)}%`,
       style: terminalSmallStyle,
     });
-    effValue.x = contentX + 120;
+    effValue.anchor.set(1, 0);
+    effValue.x = contentX + contentWidth;
     effValue.y = currentY + 2;
     this.container.addChild(effValue);
     currentY += LAYOUT.LINE_HEIGHT + 8;
@@ -348,11 +351,13 @@ export class WelcomeBackModal {
     moneyLabel.y = currentY;
     this.container.addChild(moneyLabel);
 
+    // Money value (right-anchored to prevent overflow with large numbers)
     const moneyValue = new Text({
       text: formatResource('money', result.earnings.money),
       style: terminalBrightStyle,
     });
-    moneyValue.x = contentX + 120;
+    moneyValue.anchor.set(1, 0);
+    moneyValue.x = contentX + contentWidth;
     moneyValue.y = currentY;
     this.container.addChild(moneyValue);
     currentY += LAYOUT.LINE_HEIGHT + 16;
