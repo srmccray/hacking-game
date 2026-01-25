@@ -78,6 +78,7 @@ export class MainMenuScene extends BaseScene {
   private titleText: Text | null = null;
   private versionText: Text | null = null;
   private menuItems: Text[] = [];
+  private menuSubItems: Text[] = []; // Track sub-labels separately for cleanup
   private menuData: MenuItem[] = [];
   private cursorText: Text | null = null;
   private hintText: Text | null = null;
@@ -236,6 +237,14 @@ export class MainMenuScene extends BaseScene {
       item.destroy();
     }
     this.menuItems = [];
+
+    // Clear existing sub-items (Last played labels)
+    for (const subItem of this.menuSubItems) {
+      this.container.removeChild(subItem);
+      subItem.destroy();
+    }
+    this.menuSubItems = [];
+
     this.menuData = [];
 
     const centerX = this.game.renderer.width / 2;
@@ -295,7 +304,7 @@ export class MainMenuScene extends BaseScene {
         subText.x = centerX;
         subText.y = MENU_START_Y + i * MENU_ITEM_HEIGHT + 20;
         this.container.addChild(subText);
-        // Store reference for potential cleanup (attached to main text as child data)
+        this.menuSubItems.push(subText); // Track for cleanup
       }
     }
   }
@@ -311,14 +320,12 @@ export class MainMenuScene extends BaseScene {
     this.nameInputContainer.visible = false;
     this.container.addChild(this.nameInputContainer);
 
-    // Background panel
+    // Background panel - solid opaque fill to cover content behind
     const bg = new Graphics();
-    bg.fill({ color: COLORS.BACKGROUND, alpha: 0.95 });
     bg.rect(centerX - 200, centerY - 80, 400, 160);
-    bg.fill();
+    bg.fill({ color: COLORS.BACKGROUND, alpha: 1 });
+    bg.rect(centerX - 200, centerY - 80, 400, 160);
     bg.stroke({ color: COLORS.TERMINAL_GREEN, width: 2 });
-    bg.rect(centerX - 200, centerY - 80, 400, 160);
-    bg.stroke();
     this.nameInputContainer.addChild(bg);
 
     // Prompt
@@ -333,12 +340,10 @@ export class MainMenuScene extends BaseScene {
 
     // Input field background
     const inputBg = new Graphics();
+    inputBg.rect(centerX - 150, centerY - 10, 300, 40);
     inputBg.fill({ color: 0x111111 });
     inputBg.rect(centerX - 150, centerY - 10, 300, 40);
-    inputBg.fill();
     inputBg.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
-    inputBg.rect(centerX - 150, centerY - 10, 300, 40);
-    inputBg.stroke();
     this.nameInputContainer.addChild(inputBg);
 
     // Input text
@@ -352,9 +357,8 @@ export class MainMenuScene extends BaseScene {
 
     // Cursor
     this.nameInputCursor = new Graphics();
-    this.nameInputCursor.fill({ color: COLORS.TERMINAL_BRIGHT });
     this.nameInputCursor.rect(0, 0, 2, 20);
-    this.nameInputCursor.fill();
+    this.nameInputCursor.fill({ color: COLORS.TERMINAL_BRIGHT });
     this.nameInputCursor.x = centerX - 140;
     this.nameInputCursor.y = centerY;
     this.nameInputContainer.addChild(this.nameInputCursor);
@@ -381,14 +385,12 @@ export class MainMenuScene extends BaseScene {
     this.confirmContainer.visible = false;
     this.container.addChild(this.confirmContainer);
 
-    // Background panel
+    // Background panel - solid opaque fill to cover content behind
     const bg = new Graphics();
-    bg.fill({ color: COLORS.BACKGROUND, alpha: 0.95 });
     bg.rect(centerX - 200, centerY - 80, 400, 160);
-    bg.fill();
+    bg.fill({ color: COLORS.BACKGROUND, alpha: 1 });
+    bg.rect(centerX - 200, centerY - 80, 400, 160);
     bg.stroke({ color: COLORS.TERMINAL_RED, width: 2 });
-    bg.rect(centerX - 200, centerY - 80, 400, 160);
-    bg.stroke();
     this.confirmContainer.addChild(bg);
 
     // Confirm text
@@ -404,10 +406,11 @@ export class MainMenuScene extends BaseScene {
     this.confirmText.y = centerY - 40;
     this.confirmContainer.addChild(this.confirmText);
 
-    // Options
+    // Options - initial text will be set by updateConfirmDisplay()
+    // Using dim style initially since "No" (index 1) is the default selection
     const yesText = new Text({
-      text: '[ Yes, Delete ]',
-      style: terminalStyle,
+      text: '   Yes, Delete   ',
+      style: terminalDimStyle,
     });
     yesText.anchor.set(0.5, 0);
     yesText.x = centerX - 80;
@@ -416,14 +419,24 @@ export class MainMenuScene extends BaseScene {
     this.confirmOptions.push(yesText);
 
     const noText = new Text({
-      text: '[ No, Cancel ]',
-      style: terminalStyle,
+      text: '>> No, Cancel <<',
+      style: terminalBrightStyle,
     });
     noText.anchor.set(0.5, 0);
     noText.x = centerX + 80;
     noText.y = centerY + 10;
     this.confirmContainer.addChild(noText);
     this.confirmOptions.push(noText);
+
+    // Hint text for confirm dialog
+    const confirmHint = new Text({
+      text: '[Arrows] Navigate   [Enter] Confirm   [Esc] Cancel',
+      style: terminalSmallStyle,
+    });
+    confirmHint.anchor.set(0.5, 0);
+    confirmHint.x = centerX;
+    confirmHint.y = centerY + 50;
+    this.confirmContainer.addChild(confirmHint);
   }
 
   // ==========================================================================
@@ -476,16 +489,30 @@ export class MainMenuScene extends BaseScene {
 
   /**
    * Update the confirm delete display.
+   * Uses text content changes with markers instead of style.fill changes
+   * because PixiJS 8.x doesn't reliably re-render on style property changes.
    */
   private updateConfirmDisplay(): void {
-    for (let i = 0; i < this.confirmOptions.length; i++) {
-      const text = this.confirmOptions[i];
-      if (!text) {continue;}
+    const yesText = this.confirmOptions[0];
+    const noText = this.confirmOptions[1];
 
-      if (i === this.confirmIndex) {
-        text.style = terminalBrightStyle;
+    if (yesText) {
+      if (this.confirmIndex === 0) {
+        yesText.text = '>> Yes, Delete <<';
+        yesText.style = terminalBrightStyle;
       } else {
-        text.style = terminalStyle;
+        yesText.text = '   Yes, Delete   ';
+        yesText.style = terminalDimStyle;
+      }
+    }
+
+    if (noText) {
+      if (this.confirmIndex === 1) {
+        noText.text = '>> No, Cancel <<';
+        noText.style = terminalBrightStyle;
+      } else {
+        noText.text = '   No, Cancel   ';
+        noText.style = terminalDimStyle;
       }
     }
   }
@@ -573,6 +600,10 @@ export class MainMenuScene extends BaseScene {
       this.selectedIndex =
         (this.selectedIndex - 1 + this.menuData.length) % this.menuData.length;
       this.updateMenuDisplay();
+    } else if (this.menuState === 'confirm-delete') {
+      // Allow Up/Down as alternative to Left/Right in confirm dialog
+      this.confirmIndex = (this.confirmIndex - 1 + this.confirmOptions.length) % this.confirmOptions.length;
+      this.updateConfirmDisplay();
     }
   }
 
@@ -583,6 +614,10 @@ export class MainMenuScene extends BaseScene {
     if (this.menuState === 'slot-select') {
       this.selectedIndex = (this.selectedIndex + 1) % this.menuData.length;
       this.updateMenuDisplay();
+    } else if (this.menuState === 'confirm-delete') {
+      // Allow Up/Down as alternative to Left/Right in confirm dialog
+      this.confirmIndex = (this.confirmIndex + 1) % this.confirmOptions.length;
+      this.updateConfirmDisplay();
     }
   }
 
