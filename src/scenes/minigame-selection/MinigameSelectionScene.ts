@@ -221,16 +221,6 @@ class MinigameSelectionScene implements Scene {
   }
 
   /**
-   * Truncate text to fit within a maximum width, adding ellipsis if needed.
-   */
-  private truncateText(text: string, maxChars: number): string {
-    if (text.length <= maxChars) {
-      return text;
-    }
-    return text.substring(0, maxChars - 3) + '...';
-  }
-
-  /**
    * Create menu items from registered minigames.
    */
   private createMenuItems(): void {
@@ -283,29 +273,30 @@ class MinigameSelectionScene implements Scene {
       resourceText.y = 0;
       itemContainer.addChild(resourceText);
 
-      // Description - truncate to single line to prevent overflow
-      // Calculate max characters based on available width and font size
-      // At 14px monospace, each character is approximately 8.4px wide
+      // Description - use word wrap to allow multi-line text
       const descStartX = LAYOUT.PADDING + 40;
       const borderRightEdge = width - (LAYOUT.PADDING - 20);
-      const availableWidth = borderRightEdge - descStartX - 60; // 60px safety margin
-      const charWidth = 8.4; // Approximate width of monospace character at 14px
-      const maxChars = Math.floor(availableWidth / charWidth);
+      const descMaxWidth = borderRightEdge - descStartX - 20; // 20px safety margin
 
       const descriptionText = unlocked ? summary.description : 'Complete upgrades to unlock';
-      const truncatedDesc = this.truncateText(descriptionText, maxChars);
 
       const descText = new Text({
-        text: truncatedDesc,
+        text: descriptionText,
         style: new TextStyle({
           fontFamily: FONT_FAMILY,
           fontSize: LAYOUT.DESC_FONT_SIZE,
           fill: COLORS.TERMINAL_DIM,
+          wordWrap: true,
+          wordWrapWidth: descMaxWidth,
         }),
       });
       descText.x = descStartX;
       descText.y = 25;
       itemContainer.addChild(descText);
+
+      // Calculate actual item height based on wrapped text
+      const descHeight = descText.height;
+      const itemHeight = Math.max(LAYOUT.ITEM_MIN_HEIGHT, 25 + descHeight + 10); // 25 is desc Y offset, 10 is bottom padding
 
       this.container.addChild(itemContainer);
 
@@ -315,7 +306,7 @@ class MinigameSelectionScene implements Scene {
         container: itemContainer,
       });
 
-      yPos += LAYOUT.ITEM_MIN_HEIGHT + LAYOUT.ITEM_SPACING;
+      yPos += itemHeight + LAYOUT.ITEM_SPACING;
     }
 
     // If no minigames registered, show a message
