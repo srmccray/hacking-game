@@ -1,42 +1,37 @@
 /**
- * Minigame Selection Scene
+ * Minigame Interstitial Scene
  *
- * Displays a menu of available minigames for the player to choose from.
- * Shows minigame names, descriptions, primary resources, and unlock status.
+ * Displays a menu before entering a minigame with options to start the game
+ * or view upgrades for that minigame.
  *
  * Visual Layout:
  * +------------------------------------------+
- * |           SELECT MINIGAME                |
+ * |              CODE BREAKER                |
  * +------------------------------------------+
  * |                                          |
- * |  > [Code Breaker]              [$$$]     |
- * |    Break codes to earn money             |
- * |                                          |
- * |    [???]                      [Locked]   |
- * |    Complete upgrades to unlock           |
+ * |          > [Start Game]                  |
+ * |            [Upgrades]                    |
  * |                                          |
  * +------------------------------------------+
- * |  [Enter] Play   [Esc] Back               |
+ * |  [Enter] Select   [Esc] Back             |
  * +------------------------------------------+
  *
  * Usage:
- *   sceneManager.register('minigame-selection', () => createMinigameSelectionScene(game));
+ *   sceneManager.register('minigame-interstitial', () => createMinigameInterstitialScene(game, minigameId));
  */
 
-import { Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Container, Graphics, Text } from 'pixi.js';
 import type { Scene, GameInstance } from '../../core/types';
 import type { Game } from '../../game/Game';
 import type { InputContext } from '../../input/InputManager';
 import { INPUT_PRIORITY } from '../../input/InputManager';
 import { COLORS } from '../../rendering/Renderer';
 import {
-  FONT_FAMILY,
   terminalDimStyle,
   terminalBrightStyle,
   titleStyle,
 } from '../../rendering/styles';
-import type { MinigameSummary } from '../../minigames/MinigameRegistry';
-import { createMinigameInterstitialScene } from '../minigame-interstitial';
+import { createMinigameUpgradesScene } from '../minigame-upgrades';
 
 // ============================================================================
 // Configuration
@@ -47,46 +42,27 @@ const LAYOUT = {
   /** Padding from edges */
   PADDING: 60,
   /** Header Y position */
-  HEADER_Y: 80,
+  HEADER_Y: 120,
   /** Y position where menu items start */
-  MENU_START_Y: 160,
-  /** Minimum height of each menu item */
-  ITEM_MIN_HEIGHT: 60,
-  /** Spacing between menu items */
-  ITEM_SPACING: 20,
+  MENU_START_Y: 250,
+  /** Height of each menu item */
+  ITEM_HEIGHT: 50,
   /** Instructions Y offset from bottom */
   INSTRUCTIONS_BOTTOM_OFFSET: 50,
-  /** Maximum lines for description text */
-  MAX_DESC_LINES: 2,
-  /** Description font size */
-  DESC_FONT_SIZE: 14,
 } as const;
 
-/** Resource type display info */
-const RESOURCE_DISPLAY: Record<string, { symbol: string; color: number }> = {
-  money: { symbol: '$$$', color: COLORS.TERMINAL_GREEN },
-  technique: { symbol: '***', color: 0x00ffff },
-  renown: { symbol: '^^^', color: 0xffff00 },
-};
+/** Menu options */
+const MENU_OPTIONS = ['Start Game', 'Upgrades'] as const;
 
 // ============================================================================
 // Scene Implementation
 // ============================================================================
 
 /**
- * Menu item data structure for rendering.
+ * Minigame Interstitial Scene implementation.
  */
-interface MenuItem {
-  summary: MinigameSummary;
-  unlocked: boolean;
-  container: Container;
-}
-
-/**
- * Minigame Selection Scene implementation.
- */
-class MinigameSelectionScene implements Scene {
-  readonly id = 'minigame-selection';
+class MinigameInterstitialScene implements Scene {
+  readonly id = 'minigame-interstitial';
 
   /** The PixiJS container for this scene */
   private readonly container: Container;
@@ -94,11 +70,14 @@ class MinigameSelectionScene implements Scene {
   /** Reference to the game instance */
   private readonly game: Game;
 
+  /** The minigame ID this interstitial is for */
+  private readonly minigameId: string;
+
   /** Input context for this scene */
   private inputContext: InputContext | null = null;
 
-  /** Menu items */
-  private menuItems: MenuItem[] = [];
+  /** Menu item text objects */
+  private menuItems: Text[] = [];
 
   /** Currently selected index */
   private selectedIndex = 0;
@@ -106,10 +85,11 @@ class MinigameSelectionScene implements Scene {
   /** Selection indicator graphic */
   private selectionIndicator: Graphics | null = null;
 
-  constructor(game: Game) {
+  constructor(game: Game, minigameId: string) {
     this.game = game;
+    this.minigameId = minigameId;
     this.container = new Container();
-    this.container.label = 'minigame-selection-scene';
+    this.container.label = 'minigame-interstitial-scene';
   }
 
   // ==========================================================================
@@ -121,12 +101,12 @@ class MinigameSelectionScene implements Scene {
   }
 
   onEnter(): void {
-    console.log('[MinigameSelectionScene] Entering scene');
+    console.log('[MinigameInterstitialScene] Entering scene for minigame:', this.minigameId);
 
     // Create background
     this.createBackground();
 
-    // Create header
+    // Create header with minigame name
     this.createHeader();
 
     // Create menu items
@@ -146,7 +126,7 @@ class MinigameSelectionScene implements Scene {
   }
 
   onExit(): void {
-    console.log('[MinigameSelectionScene] Exiting scene');
+    console.log('[MinigameInterstitialScene] Exiting scene');
 
     // Disable input context
     if (this.inputContext) {
@@ -159,7 +139,7 @@ class MinigameSelectionScene implements Scene {
   }
 
   onDestroy(): void {
-    console.log('[MinigameSelectionScene] Destroying scene');
+    console.log('[MinigameInterstitialScene] Destroying scene');
 
     // Unregister input context
     if (this.inputContext) {
@@ -191,20 +171,24 @@ class MinigameSelectionScene implements Scene {
 
     // Border
     bg.stroke({ color: COLORS.TERMINAL_GREEN, width: 2, alpha: 0.5 });
-    bg.rect(LAYOUT.PADDING - 20, LAYOUT.HEADER_Y - 30, width - (LAYOUT.PADDING - 20) * 2, height - LAYOUT.HEADER_Y);
+    bg.rect(LAYOUT.PADDING - 20, LAYOUT.HEADER_Y - 50, width - (LAYOUT.PADDING - 20) * 2, height - LAYOUT.HEADER_Y);
     bg.stroke();
 
     this.container.addChild(bg);
   }
 
   /**
-   * Create the header.
+   * Create the header with minigame name.
    */
   private createHeader(): void {
     const { width } = this.game.config.canvas;
 
+    // Get minigame name from registry
+    const minigameDef = this.game.minigameRegistry.get(this.minigameId);
+    const minigameName = minigameDef?.name ?? this.minigameId;
+
     const header = new Text({
-      text: 'SELECT MINIGAME',
+      text: minigameName.toUpperCase(),
       style: titleStyle,
     });
     header.anchor.set(0.5, 0);
@@ -215,111 +199,31 @@ class MinigameSelectionScene implements Scene {
     // Divider line
     const divider = new Graphics();
     divider.stroke({ color: COLORS.TERMINAL_GREEN, width: 1, alpha: 0.5 });
-    divider.moveTo(LAYOUT.PADDING, LAYOUT.HEADER_Y + 50);
-    divider.lineTo(width - LAYOUT.PADDING, LAYOUT.HEADER_Y + 50);
+    divider.moveTo(LAYOUT.PADDING, LAYOUT.HEADER_Y + 60);
+    divider.lineTo(width - LAYOUT.PADDING, LAYOUT.HEADER_Y + 60);
     divider.stroke();
     this.container.addChild(divider);
   }
 
   /**
-   * Create menu items from registered minigames.
+   * Create menu items.
    */
   private createMenuItems(): void {
     const { width } = this.game.config.canvas;
-    const summaries = this.game.minigameRegistry.getSummaries();
-    const gameState = this.game.store.getState();
 
-    let yPos = LAYOUT.MENU_START_Y;
+    for (const [i, option] of MENU_OPTIONS.entries()) {
+      const yPos = LAYOUT.MENU_START_Y + i * LAYOUT.ITEM_HEIGHT;
 
-    for (const summary of summaries) {
-      // Check unlock status from game state
-      // Default to unlocked if minigame state doesn't exist (new minigames in old saves)
-      const minigameState = gameState.minigames[summary.id];
-      const unlocked = minigameState?.unlocked ?? true;
-
-      const itemContainer = new Container();
-      itemContainer.y = yPos;
-
-      // Calculate available width for name text (leave room for resource indicator)
-      // Resource indicator is approximately 80px wide including brackets
-      const resourceIndicatorWidth = 80;
-      const nameStartX = LAYOUT.PADDING + 40; // Leave room for selection indicator
-      const nameMaxWidth = width - nameStartX - LAYOUT.PADDING - resourceIndicatorWidth;
-
-      // Name (or ??? if locked) - with word wrap to prevent overflow
-      const nameText = new Text({
-        text: unlocked ? summary.name : '???',
-        style: new TextStyle({
-          ...(unlocked ? terminalBrightStyle : terminalDimStyle),
-          wordWrap: true,
-          wordWrapWidth: nameMaxWidth,
-        }),
+      const text = new Text({
+        text: option,
+        style: terminalBrightStyle,
       });
-      nameText.x = nameStartX;
-      nameText.y = 0;
-      itemContainer.addChild(nameText);
+      text.anchor.set(0.5, 0);
+      text.x = width / 2;
+      text.y = yPos;
+      this.container.addChild(text);
 
-      // Resource indicator (right side)
-      const resourceInfo = RESOURCE_DISPLAY[summary.primaryResource] || { symbol: '???', color: COLORS.TERMINAL_DIM };
-      const resourceText = new Text({
-        text: unlocked ? `[${resourceInfo.symbol}]` : '[Locked]',
-        style: new TextStyle({
-          fontFamily: FONT_FAMILY,
-          fontSize: 16,
-          fill: unlocked ? resourceInfo.color : COLORS.TERMINAL_DIM,
-        }),
-      });
-      resourceText.anchor.set(1, 0);
-      resourceText.x = width - LAYOUT.PADDING;
-      resourceText.y = 0;
-      itemContainer.addChild(resourceText);
-
-      // Description - use word wrap to allow multi-line text
-      const descStartX = LAYOUT.PADDING + 40;
-      const borderRightEdge = width - (LAYOUT.PADDING - 20);
-      const descMaxWidth = borderRightEdge - descStartX - 20; // 20px safety margin
-
-      const descriptionText = unlocked ? summary.description : 'Complete upgrades to unlock';
-
-      const descText = new Text({
-        text: descriptionText,
-        style: new TextStyle({
-          fontFamily: FONT_FAMILY,
-          fontSize: LAYOUT.DESC_FONT_SIZE,
-          fill: COLORS.TERMINAL_DIM,
-          wordWrap: true,
-          wordWrapWidth: descMaxWidth,
-        }),
-      });
-      descText.x = descStartX;
-      descText.y = 25;
-      itemContainer.addChild(descText);
-
-      // Calculate actual item height based on wrapped text
-      const descHeight = descText.height;
-      const itemHeight = Math.max(LAYOUT.ITEM_MIN_HEIGHT, 25 + descHeight + 10); // 25 is desc Y offset, 10 is bottom padding
-
-      this.container.addChild(itemContainer);
-
-      this.menuItems.push({
-        summary,
-        unlocked,
-        container: itemContainer,
-      });
-
-      yPos += itemHeight + LAYOUT.ITEM_SPACING;
-    }
-
-    // If no minigames registered, show a message
-    if (this.menuItems.length === 0) {
-      const noGamesText = new Text({
-        text: 'No minigames available',
-        style: terminalDimStyle,
-      });
-      noGamesText.anchor.set(0.5, 0);
-      noGamesText.x = width / 2;
-      noGamesText.y = LAYOUT.MENU_START_Y;
-      this.container.addChild(noGamesText);
+      this.menuItems.push(text);
     }
   }
 
@@ -338,7 +242,7 @@ class MinigameSelectionScene implements Scene {
     const { width, height } = this.game.config.canvas;
 
     const instructions = new Text({
-      text: '[↑/↓] Navigate   [Enter] Play   [Esc] Back',
+      text: '[Up/Down] Navigate   [Enter] Select   [Esc] Back',
       style: terminalDimStyle,
     });
     instructions.anchor.set(0.5, 0);
@@ -359,6 +263,8 @@ class MinigameSelectionScene implements Scene {
       return;
     }
 
+    const { width } = this.game.config.canvas;
+
     // Clear and redraw indicator
     this.selectionIndicator.clear();
 
@@ -367,13 +273,25 @@ class MinigameSelectionScene implements Scene {
       return;
     }
 
-    const yPos = selectedItem.container.y;
+    const yPos = selectedItem.y;
 
-    // Draw selection arrow
+    // Draw selection brackets
+    const textWidth = selectedItem.width;
+    const bracketOffset = textWidth / 2 + 20;
+
+    // Left bracket: >
     this.selectionIndicator.fill({ color: COLORS.TERMINAL_GREEN });
-    this.selectionIndicator.moveTo(LAYOUT.PADDING + 10, yPos + 8);
-    this.selectionIndicator.lineTo(LAYOUT.PADDING + 25, yPos + 16);
-    this.selectionIndicator.lineTo(LAYOUT.PADDING + 10, yPos + 24);
+    this.selectionIndicator.moveTo(width / 2 - bracketOffset - 10, yPos + 8);
+    this.selectionIndicator.lineTo(width / 2 - bracketOffset, yPos + 12);
+    this.selectionIndicator.lineTo(width / 2 - bracketOffset - 10, yPos + 16);
+    this.selectionIndicator.closePath();
+    this.selectionIndicator.fill();
+
+    // Right bracket: <
+    this.selectionIndicator.fill({ color: COLORS.TERMINAL_GREEN });
+    this.selectionIndicator.moveTo(width / 2 + bracketOffset + 10, yPos + 8);
+    this.selectionIndicator.lineTo(width / 2 + bracketOffset, yPos + 12);
+    this.selectionIndicator.lineTo(width / 2 + bracketOffset + 10, yPos + 16);
     this.selectionIndicator.closePath();
     this.selectionIndicator.fill();
 
@@ -384,7 +302,7 @@ class MinigameSelectionScene implements Scene {
       const isSelected = i === this.selectedIndex;
 
       // Adjust alpha based on selection
-      item.container.alpha = isSelected ? 1.0 : 0.7;
+      item.alpha = isSelected ? 1.0 : 0.5;
     }
   }
 
@@ -413,43 +331,32 @@ class MinigameSelectionScene implements Scene {
   }
 
   /**
-   * Confirm selection and go to the minigame interstitial.
+   * Confirm selection.
    */
   private confirmSelection(): void {
-    if (this.menuItems.length === 0) {
-      return;
+    const selectedOption = MENU_OPTIONS[this.selectedIndex];
+
+    if (selectedOption === 'Start Game') {
+      console.log('[MinigameInterstitialScene] Starting minigame:', this.minigameId);
+      void this.game.switchScene(this.minigameId);
+    } else if (selectedOption === 'Upgrades') {
+      console.log('[MinigameInterstitialScene] Opening upgrades for:', this.minigameId);
+      // Register and switch to minigame upgrades scene
+      const upgradesSceneId = `minigame-upgrades-${this.minigameId}`;
+      this.game.sceneManager.register(
+        upgradesSceneId,
+        () => createMinigameUpgradesScene(this.game, this.minigameId)
+      );
+      void this.game.switchScene(upgradesSceneId);
     }
-
-    const selectedItem = this.menuItems[this.selectedIndex];
-    if (!selectedItem) {
-      return;
-    }
-
-    // Check if unlocked
-    if (!selectedItem.unlocked) {
-      console.log('[MinigameSelectionScene] Minigame is locked:', selectedItem.summary.id);
-      // Could add visual/audio feedback here
-      return;
-    }
-
-    const minigameId = selectedItem.summary.id;
-    console.log('[MinigameSelectionScene] Opening interstitial for:', minigameId);
-
-    // Register and switch to the interstitial scene
-    const interstitialSceneId = `minigame-interstitial-${minigameId}`;
-    this.game.sceneManager.register(
-      interstitialSceneId,
-      () => createMinigameInterstitialScene(this.game, minigameId)
-    );
-    void this.game.switchScene(interstitialSceneId);
   }
 
   /**
-   * Go back to the apartment.
+   * Go back to the minigame selection.
    */
   private goBack(): void {
-    console.log('[MinigameSelectionScene] Returning to apartment');
-    void this.game.switchScene('apartment');
+    console.log('[MinigameInterstitialScene] Returning to minigame selection');
+    void this.game.switchScene('minigame-selection');
   }
 
   // ==========================================================================
@@ -476,7 +383,7 @@ class MinigameSelectionScene implements Scene {
     bindings.set('Escape', { onPress: () => this.goBack() });
 
     this.inputContext = {
-      id: 'minigame-selection',
+      id: 'minigame-interstitial',
       priority: INPUT_PRIORITY.SCENE,
       enabled: true,
       blocksPropagation: true,
@@ -484,7 +391,7 @@ class MinigameSelectionScene implements Scene {
     };
 
     this.game.inputManager.registerContext(this.inputContext);
-    this.game.inputManager.enableContext('minigame-selection');
+    this.game.inputManager.enableContext('minigame-interstitial');
   }
 }
 
@@ -493,11 +400,12 @@ class MinigameSelectionScene implements Scene {
 // ============================================================================
 
 /**
- * Create a new minigame selection scene.
+ * Create a new minigame interstitial scene.
  *
  * @param game - The game instance
- * @returns A new MinigameSelectionScene
+ * @param minigameId - The ID of the minigame this interstitial is for
+ * @returns A new MinigameInterstitialScene
  */
-export function createMinigameSelectionScene(game: GameInstance): Scene {
-  return new MinigameSelectionScene(game as Game);
+export function createMinigameInterstitialScene(game: GameInstance, minigameId: string): Scene {
+  return new MinigameInterstitialScene(game as Game, minigameId);
 }
