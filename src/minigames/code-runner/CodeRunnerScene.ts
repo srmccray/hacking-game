@@ -2,23 +2,26 @@
  * Code Runner Scene
  *
  * PixiJS scene for the Code Runner minigame. Handles:
- * - Visual rendering of player and scrolling obstacles
+ * - Visual rendering of player (spinning triangle) and scrolling obstacles (code walls)
  * - Distance/score display in HUD
  * - Input context registration for keyboard handling (A/D, arrows)
  * - Results overlay on game end
  *
  * Visual Layout:
  * +------------------------------------------+
- * |  CODE RUNNER                              |
- * +------------------------------------------+
  * |  DISTANCE: 1234                           |
  * |                                           |
- * |  [===    ===][====     ====][==      ==]  |  <- Scrolling obstacles
+ * |  [code...][gap][...code][code...][gap]    |  <- Code text walls
  * |                                           |
- * |              [ V ]                        |  <- Player (terminal cursor)
+ * |              /\                           |  <- Player (spinning triangle)
  * +------------------------------------------+
  * |  A/D or arrows to move | ESC to exit      |
  * +------------------------------------------+
+ *
+ * Visual Features:
+ * - Player is an upward-pointing triangle that spins based on movement
+ * - Walls are displayed as lines of code text instead of solid rectangles
+ * - Title removed for cleaner gameplay view
  *
  * Usage:
  *   // Via MinigameRegistry
@@ -33,7 +36,7 @@
  *   sceneManager.register('code-runner', () => scene);
  */
 
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { Scene, GameInstance } from '../../core/types';
 import type { Game } from '../../game/Game';
 import type { InputContext } from '../../input/InputManager';
@@ -45,6 +48,8 @@ import {
   terminalBrightStyle,
   titleStyle,
   scoreStyle,
+  FONT_FAMILY,
+  FONT_SIZES,
 } from '../../rendering/styles';
 import { GameEvents } from '../../events/game-events';
 
@@ -56,17 +61,67 @@ import { GameEvents } from '../../events/game-events';
 const LAYOUT = {
   /** Padding from edges */
   PADDING: 40,
-  /** Header height */
-  HEADER_HEIGHT: 60,
+  /** Header height - reduced since we removed the title */
+  HEADER_HEIGHT: 20,
   /** Y position of instructions from bottom */
   INSTRUCTIONS_BOTTOM_OFFSET: 40,
-  /** Player visual size (display only, hitbox comes from game config) */
-  PLAYER_VISUAL_WIDTH: 24,
-  PLAYER_VISUAL_HEIGHT: 32,
+  /** Player triangle size (radius from center to vertex) */
+  PLAYER_TRIANGLE_SIZE: 16,
+  /** Player rotation speed (radians per pixel of movement) */
+  PLAYER_ROTATION_SPEED: 0.08,
 } as const;
 
-/** Player character (terminal cursor style) */
-const PLAYER_CHAR = '\u25BC'; // Down-pointing triangle
+/** Code snippets used for wall obstacles */
+const CODE_SNIPPETS = [
+  'const x = 0;',
+  'if (true) {',
+  'return data;',
+  'let i = 0;',
+  'for (;;) {',
+  'while (1)',
+  'break;',
+  'continue;',
+  '} else {',
+  'import *',
+  'export fn',
+  'async () =>',
+  'await fetch',
+  'try { }',
+  'catch (e)',
+  'throw err;',
+  'new Map()',
+  'null;',
+  'undefined',
+  '// TODO:',
+  '/* ... */',
+  'fn(a, b)',
+  'return;',
+  'class C {}',
+  'extends B',
+  'super();',
+  'this.x =',
+  'arr.push()',
+  'arr.pop()',
+  'str.split',
+  'Object.keys',
+  'JSON.parse',
+  'console.log',
+  'process.env',
+  'module.exports',
+  'require("")',
+  'useState()',
+  'useEffect',
+  'onClick={',
+  '<div />',
+  '</span>',
+];
+
+/** Style for code wall text */
+const codeWallStyle = new TextStyle({
+  fontFamily: FONT_FAMILY,
+  fontSize: FONT_SIZES.SMALL,
+  fill: COLORS.TERMINAL_GREEN,
+});
 
 // ============================================================================
 // Scene Implementation
@@ -94,13 +149,20 @@ class CodeRunnerScene implements Scene {
   private showingResults: boolean = false;
 
   // UI Elements
+  private playerContainer: Container | null = null;
   private playerGraphic: Graphics | null = null;
-  private playerText: Text | null = null;
-  private obstacleGraphics: Graphics[] = [];
+  private readonly obstacleContainersById: Map<number, Container> = new Map();
   private distanceText: Text | null = null;
   private statusText: Text | null = null;
   private resultsOverlay: Container | null = null;
   private gameArea: Container | null = null;
+
+  // Player Y-axis spin state (uses scaleX for flip effect)
+  private playerSpinPhase: number = 0;
+  private lastPlayerX: number = 0;
+
+  // Cache for obstacle code text by obstacle ID (to prevent flickering)
+  private readonly obstacleTextCache: Map<number, { leftText: string; rightText: string }> = new Map();
 
   // Event unsubscribers
   private unsubscribers: Array<() => void> = [];
@@ -211,9 +273,9 @@ class CodeRunnerScene implements Scene {
     }
 
     // Clear UI references
+    this.playerContainer = null;
     this.playerGraphic = null;
-    this.playerText = null;
-    this.obstacleGraphics = [];
+    this.obstacleContainersById.clear();
     this.distanceText = null;
     this.statusText = null;
     this.resultsOverlay = null;
@@ -269,23 +331,14 @@ class CodeRunnerScene implements Scene {
   }
 
   /**
-   * Create header with title.
+   * Create header (title removed as per requirements).
    */
-  private createHeader(centerX: number): void {
-    const title = new Text({
-      text: 'CODE RUNNER',
-      style: titleStyle,
-    });
-    title.anchor.set(0.5, 0);
-    title.x = centerX;
-    title.y = LAYOUT.PADDING;
-    this.container.addChild(title);
-
-    // Divider line
+  private createHeader(_centerX: number): void {
+    // Title removed - just add a subtle divider line for visual structure
     const divider = new Graphics();
     divider.moveTo(LAYOUT.PADDING, LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING);
     divider.lineTo(this.game.config.canvas.width - LAYOUT.PADDING, LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING);
-    divider.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
+    divider.stroke({ color: COLORS.TERMINAL_DIM, width: 1, alpha: 0.3 });
     this.container.addChild(divider);
   }
 
@@ -297,35 +350,45 @@ class CodeRunnerScene implements Scene {
     this.gameArea.label = 'game-area';
     this.container.addChild(this.gameArea);
 
-    // Create player graphic (container for both shape and character)
-    const playerContainer = new Container();
-    playerContainer.label = 'player';
+    // Create player container
+    this.playerContainer = new Container();
+    this.playerContainer.label = 'player';
 
-    // Player visual - terminal cursor style
+    // Player visual - upward-pointing triangle (terminal cursor style)
     this.playerGraphic = new Graphics();
-    this.playerGraphic.rect(
-      -LAYOUT.PLAYER_VISUAL_WIDTH / 2,
-      -LAYOUT.PLAYER_VISUAL_HEIGHT / 2,
-      LAYOUT.PLAYER_VISUAL_WIDTH,
-      LAYOUT.PLAYER_VISUAL_HEIGHT
-    );
-    this.playerGraphic.fill({ color: COLORS.TERMINAL_GREEN, alpha: 0.3 });
-    this.playerGraphic.stroke({ color: COLORS.TERMINAL_BRIGHT, width: 2 });
-    playerContainer.addChild(this.playerGraphic);
+    this.drawPlayerTriangle();
+    this.playerContainer.addChild(this.playerGraphic);
 
-    // Player character text
-    this.playerText = new Text({
-      text: PLAYER_CHAR,
-      style: terminalBrightStyle,
-    });
-    this.playerText.anchor.set(0.5);
-    playerContainer.addChild(this.playerText);
-
-    this.gameArea.addChild(playerContainer);
+    this.gameArea.addChild(this.playerContainer);
 
     // Initial position (will be updated in updateDisplay)
-    playerContainer.x = width / 2;
-    playerContainer.y = height - 80;
+    this.playerContainer.x = width / 2;
+    this.playerContainer.y = height - 80;
+    this.lastPlayerX = width / 2;
+  }
+
+  /**
+   * Draw the player triangle shape.
+   * Upward-pointing triangle centered at origin.
+   */
+  private drawPlayerTriangle(): void {
+    if (!this.playerGraphic) {
+      return;
+    }
+
+    const size = LAYOUT.PLAYER_TRIANGLE_SIZE;
+
+    this.playerGraphic.clear();
+
+    // Draw upward-pointing triangle
+    // Vertices: top center, bottom left, bottom right
+    this.playerGraphic.moveTo(0, -size);                          // Top vertex
+    this.playerGraphic.lineTo(-size * 0.866, size * 0.5);         // Bottom left (60 degrees)
+    this.playerGraphic.lineTo(size * 0.866, size * 0.5);          // Bottom right
+    this.playerGraphic.closePath();
+
+    this.playerGraphic.fill({ color: COLORS.TERMINAL_GREEN, alpha: 0.6 });
+    this.playerGraphic.stroke({ color: COLORS.TERMINAL_BRIGHT, width: 2 });
   }
 
   /**
@@ -390,68 +453,152 @@ class CodeRunnerScene implements Scene {
   }
 
   /**
-   * Update the player position.
+   * Update the player position and Y-axis spin.
+   * Uses scaleX to create the illusion of spinning on the Y-axis (like a 3D flip).
    */
   private updatePlayer(x: number, y: number): void {
-    if (!this.gameArea) {return;}
+    if (!this.playerContainer || !this.playerGraphic) {return;}
 
-    // Find the player container (first child should be it)
-    const playerContainer = this.gameArea.children.find(c => c.label === 'player');
-    if (playerContainer) {
-      playerContainer.x = x;
-      playerContainer.y = y;
+    // Update position
+    this.playerContainer.x = x;
+    this.playerContainer.y = y;
+
+    // Calculate movement delta for Y-axis spin
+    const deltaX = x - this.lastPlayerX;
+    this.lastPlayerX = x;
+
+    // Spin the triangle on Y-axis (flip effect using scaleX)
+    // When moving right, advance the phase; when moving left, reverse it
+    if (Math.abs(deltaX) > 0.1) {
+      // Advance spin phase based on movement (adjust speed with multiplier)
+      this.playerSpinPhase += deltaX * LAYOUT.PLAYER_ROTATION_SPEED;
+
+      // Use cosine to create smooth flip effect: cos(phase) gives -1 to 1
+      // This makes the triangle appear to flip on its Y-axis
+      this.playerGraphic.scale.x = Math.cos(this.playerSpinPhase);
     }
   }
 
   /**
-   * Update obstacle graphics.
+   * Update obstacle visuals (code text walls).
+   * Uses obstacle IDs to track containers and ensure stable text.
    */
   private updateObstacles(obstacles: readonly Obstacle[]): void {
     if (!this.gameArea) {return;}
 
-    // Remove excess obstacle graphics
-    while (this.obstacleGraphics.length > obstacles.length) {
-      const graphic = this.obstacleGraphics.pop();
-      if (graphic) {
-        this.gameArea.removeChild(graphic);
-        graphic.destroy();
+    // Build a set of current obstacle IDs for cleanup
+    const currentObstacleIds = new Set(obstacles.map((o) => o.id));
+
+    // Remove containers for obstacles that no longer exist
+    for (const [obstacleId, container] of this.obstacleContainersById) {
+      if (!currentObstacleIds.has(obstacleId)) {
+        this.gameArea.removeChild(container);
+        container.destroy({ children: true });
+        this.obstacleContainersById.delete(obstacleId);
+        // Also clean up the text cache for this obstacle
+        this.obstacleTextCache.delete(obstacleId);
       }
     }
 
-    // Add or update obstacle graphics
-    for (let i = 0; i < obstacles.length; i++) {
-      const obstacle = obstacles[i];
-      if (!obstacle) {continue;}
+    // Add or update obstacle containers
+    for (const obstacle of obstacles) {
+      let obstacleContainer = this.obstacleContainersById.get(obstacle.id);
 
-      let graphic = this.obstacleGraphics[i];
-
-      if (!graphic) {
-        // Create new graphic
-        graphic = new Graphics();
-        graphic.label = `obstacle-${i}`;
-        this.obstacleGraphics.push(graphic);
+      if (!obstacleContainer) {
+        // Create new container with code text walls
+        obstacleContainer = this.createCodeWallObstacle(obstacle);
+        this.obstacleContainersById.set(obstacle.id, obstacleContainer);
         // Insert at index 0 so player renders on top
-        this.gameArea.addChildAt(graphic, 0);
+        this.gameArea.addChildAt(obstacleContainer, 0);
       }
 
-      // Update graphic
-      graphic.clear();
+      // Update Y position (walls scroll down)
+      obstacleContainer.y = obstacle.y;
+    }
+  }
 
-      // Left block
-      if (obstacle.leftWidth > 0) {
-        graphic.rect(obstacle.x, obstacle.y, obstacle.leftWidth, obstacle.height);
-        graphic.fill({ color: COLORS.TERMINAL_DIM, alpha: 0.8 });
-        graphic.stroke({ color: COLORS.TERMINAL_GREEN, width: 1 });
-      }
+  /**
+   * Create a code wall obstacle container.
+   * Walls are displayed as lines of code text instead of solid rectangles.
+   * Text is cached per obstacle ID to ensure stable text for the obstacle's lifetime.
+   */
+  private createCodeWallObstacle(obstacle: Obstacle): Container {
+    const container = new Container();
+    container.label = `obstacle-${obstacle.id}`;
 
-      // Right block
+    const charWidth = 7; // Approximate character width for monospace font at SMALL size
+
+    // Get or create cached text strings for this specific obstacle instance
+    let cachedTexts = this.obstacleTextCache.get(obstacle.id);
+    if (!cachedTexts) {
+      cachedTexts = {
+        leftText: this.generateCodeString(obstacle.leftWidth, charWidth, true),
+        rightText: this.generateCodeString(obstacle.rightWidth, charWidth, false),
+      };
+      this.obstacleTextCache.set(obstacle.id, cachedTexts);
+    }
+
+    // Create left wall code text
+    if (obstacle.leftWidth > 0) {
+      const leftText = new Text({
+        text: cachedTexts.leftText,
+        style: codeWallStyle,
+      });
+      leftText.anchor.set(0, 0.5);
+      leftText.x = obstacle.x;
+      leftText.y = 0;
+      container.addChild(leftText);
+    }
+
+    // Create right wall code text
+    if (obstacle.rightWidth > 0) {
       const rightX = this.game.config.canvas.width - obstacle.rightWidth;
-      if (obstacle.rightWidth > 0) {
-        graphic.rect(rightX, obstacle.y, obstacle.rightWidth, obstacle.height);
-        graphic.fill({ color: COLORS.TERMINAL_DIM, alpha: 0.8 });
-        graphic.stroke({ color: COLORS.TERMINAL_GREEN, width: 1 });
+      const rightText = new Text({
+        text: cachedTexts.rightText,
+        style: codeWallStyle,
+      });
+      rightText.anchor.set(0, 0.5);
+      rightText.x = rightX;
+      rightText.y = 0;
+      container.addChild(rightText);
+    }
+
+    return container;
+  }
+
+  /**
+   * Generate a code string filled with code snippets to span the given width.
+   * This is a pure function that returns a string, used for caching.
+   */
+  private generateCodeString(width: number, charWidth: number, alignLeft: boolean): string {
+    const targetChars = Math.floor(width / charWidth);
+    let codeText = '';
+
+    // Build up text with random code snippets until we reach target width
+    while (codeText.length < targetChars) {
+      const snippet = CODE_SNIPPETS[Math.floor(Math.random() * CODE_SNIPPETS.length)];
+      if (!snippet) {
+        continue;
+      }
+
+      if (codeText.length + snippet.length + 1 <= targetChars) {
+        codeText += (codeText.length > 0 ? ' ' : '') + snippet;
+      } else {
+        // Fill remaining space with partial snippet or padding
+        const remaining = targetChars - codeText.length;
+        if (remaining > 1) {
+          codeText += ' ' + snippet.substring(0, remaining - 1);
+        }
+        break;
       }
     }
+
+    // Pad to exact width if needed
+    while (codeText.length < targetChars) {
+      codeText += '.';
+    }
+
+    return alignLeft ? codeText : codeText.split('').reverse().join('');
   }
 
   /**
@@ -628,14 +775,24 @@ class CodeRunnerScene implements Scene {
 
     this.showingResults = false;
 
-    // Clear obstacle graphics for fresh start
-    for (const graphic of this.obstacleGraphics) {
+    // Clear obstacle containers for fresh start
+    for (const container of this.obstacleContainersById.values()) {
       if (this.gameArea) {
-        this.gameArea.removeChild(graphic);
+        this.gameArea.removeChild(container);
       }
-      graphic.destroy();
+      container.destroy({ children: true });
     }
-    this.obstacleGraphics = [];
+    this.obstacleContainersById.clear();
+
+    // Reset player Y-axis spin
+    this.playerSpinPhase = 0;
+    if (this.playerGraphic) {
+      this.playerGraphic.scale.x = 1;
+    }
+    this.lastPlayerX = this.game.config.canvas.width / 2;
+
+    // Clear obstacle text cache for fresh randomization
+    this.obstacleTextCache.clear();
 
     if (restart && this.minigame) {
       this.minigame.start();

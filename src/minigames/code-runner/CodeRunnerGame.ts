@@ -46,6 +46,8 @@ import { DEFAULT_CONFIG } from '../../game/GameConfig';
  * Obstacles are full-width bars with a gap somewhere in the middle.
  */
 export interface Obstacle {
+  /** Unique identifier for this obstacle instance */
+  id: number;
   /** X position of the left edge of the left block */
   x: number;
   /** Y position of the obstacle (top edge) */
@@ -137,6 +139,9 @@ export class CodeRunnerGame extends BaseMinigame {
   /** Obstacle height constant */
   private readonly OBSTACLE_HEIGHT = 20;
 
+  /** Counter for generating unique obstacle IDs */
+  private _nextObstacleId: number = 0;
+
   // ==========================================================================
   // Constructor
   // ==========================================================================
@@ -204,6 +209,7 @@ export class CodeRunnerGame extends BaseMinigame {
     this._initialDelayPassed = false;
     this._inputLeft = false;
     this._inputRight = false;
+    this._nextObstacleId = 0;
   }
 
   protected onEnd(): void {
@@ -372,6 +378,7 @@ export class CodeRunnerGame extends BaseMinigame {
     const gapEnd = gapStart + gapWidth;
 
     const obstacle: Obstacle = {
+      id: this._nextObstacleId++,
       x: 0,
       y: -this.OBSTACLE_HEIGHT, // Spawn above screen
       leftWidth: gapStart,
@@ -485,6 +492,7 @@ export class CodeRunnerGame extends BaseMinigame {
     this._initialDelayPassed = false;
     this._inputLeft = false;
     this._inputRight = false;
+    this._nextObstacleId = 0;
   }
 
   // ==========================================================================

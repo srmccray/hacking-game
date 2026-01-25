@@ -124,6 +124,8 @@ vi.mock('../rendering/styles', () => ({
   terminalDimStyle: {},
   terminalSmallStyle: {},
   promptStyle: {},
+  scoreStyle: {},
+  FONT_FAMILY: '"Courier New", Courier, monospace',
   FONT_SIZES: { SMALL: 12, NORMAL: 16, MEDIUM: 20, LARGE: 24, TITLE: 32 },
 }));
 
