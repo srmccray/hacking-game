@@ -1,6 +1,6 @@
 ---
 name: test-coverage
-description: Create tests and ensure coverage - pytest for backend, Jest for frontend. Use after implementation or to fix flaky tests.
+description: Create tests and ensure coverage - pytest for backend, Vitest/Jest for frontend, Playwright for e2e. Use after implementation or to fix flaky tests.
 model: inherit
 color: yellow
 ---
@@ -32,6 +32,13 @@ Ensures code quality through comprehensive test coverage. Untested code is legac
 - MSW for API mocking
 - Component rendering and interaction testing
 - User event simulation
+
+### E2E Testing with Playwright
+- Cross-browser testing (Chromium, Firefox, WebKit)
+- Page navigation and interaction testing
+- Visual regression testing
+- Network request interception
+- Tests live in `tests/` directory
 
 ## Test Patterns
 
@@ -178,13 +185,50 @@ describe('ItemList', () => {
 });
 ```
 
+### Playwright E2E Test Structure
+```typescript
+import { test, expect } from '@playwright/test';
+
+test.describe('Feature Name', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+  });
+
+  test('user can complete primary flow', async ({ page }) => {
+    // Arrange - set up initial state if needed
+
+    // Act - perform user actions
+    await page.getByRole('button', { name: 'Start' }).click();
+
+    // Assert - verify expected outcome
+    await expect(page.getByText('Success')).toBeVisible();
+  });
+
+  test('handles error state gracefully', async ({ page }) => {
+    // Mock a failed API response
+    await page.route('/api/data', route =>
+      route.fulfill({ status: 500 })
+    );
+
+    await page.getByRole('button', { name: 'Load' }).click();
+
+    await expect(page.getByText('Error loading data')).toBeVisible();
+  });
+
+  test('works across different viewports', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await expect(page.getByRole('navigation')).toBeVisible();
+  });
+});
+```
+
 ## Workflow
 
 1. **Analyze**: Identify code paths needing coverage
 2. **Design**: Plan test cases (happy path, edge cases, errors)
-3. **Create**: Write tests using appropriate patterns
+3. **Create**: Write tests using appropriate patterns (unit, integration, or e2e)
 4. **Mock**: Set up mocks for external services
-5. **Verify**: Run `poetry run pytest -x` to confirm passing
+5. **Verify**: Run tests to confirm passing (`pytest`, `npm run test`, `npm run test:e2e`)
 6. **Check**: Ensure no flaky behavior
 
 ## Handoff Recommendations
@@ -208,16 +252,31 @@ Before considering tests complete:
 - [ ] Test names are descriptive
 - [ ] No flaky tests introduced
 - [ ] Tests pass in isolation and together
+- [ ] E2E tests cover critical user flows
+- [ ] E2E tests pass across browsers (Chromium, Firefox, WebKit)
 
 ## Commands
 
 ```bash
+# Backend (pytest)
 poetry run pytest <path>                    # Run tests
 poetry run pytest <path> -x                 # Stop on first failure
 poetry run pytest <path> -v                 # Verbose output
 poetry run pytest <path> --tb=short         # Short tracebacks
 poetry run pytest <path> -k "test_name"     # Run specific test
 poetry run pytest --cov=app                 # Run with coverage
-npm run test                                # Frontend Jest tests
-npm run test:coverage                       # Frontend with coverage
+
+# Frontend unit tests (Vitest/Jest)
+npm run test                                # Run unit tests
+npm run test:coverage                       # Run with coverage
+
+# E2E tests (Playwright)
+npm run test:e2e                            # Run all e2e tests headlessly
+npm run test:e2e:ui                         # Interactive UI mode
+npm run test:e2e:headed                     # Run with visible browser
+npx playwright test --project=chromium     # Run only in Chromium
+npx playwright test <file>                  # Run specific test file
+npx playwright test --debug                 # Debug mode with inspector
+npx playwright codegen                      # Record tests by clicking
+npx playwright show-report                  # View HTML test report
 ```
