@@ -320,6 +320,31 @@ export function createGameStore(initialState?: Partial<GameState>): GameStore {
         return true;
       },
 
+      purchaseMinigameUpgrade: (minigameId: string, upgradeId: string): number => {
+        const state = get();
+        const minigame = getMinigameState(state.minigames, minigameId);
+        const currentLevel = minigame.upgrades[upgradeId] ?? 0;
+        const newLevel = currentLevel + 1;
+
+        set((s) => {
+          const mg = getMinigameState(s.minigames, minigameId);
+          return {
+            minigames: {
+              ...s.minigames,
+              [minigameId]: {
+                ...mg,
+                upgrades: {
+                  ...mg.upgrades,
+                  [upgradeId]: newLevel,
+                },
+              },
+            },
+          };
+        });
+
+        return newLevel;
+      },
+
       // ======================================================================
       // Stats Actions
       // ======================================================================

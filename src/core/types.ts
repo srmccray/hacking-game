@@ -259,6 +259,15 @@ export interface GameActions {
    */
   purchaseApartmentUpgrade: (upgradeId: string) => boolean;
 
+  /**
+   * Purchase or upgrade a minigame-specific upgrade.
+   * Stores the level in minigames[minigameId].upgrades[upgradeId].
+   * @param minigameId - The minigame identifier
+   * @param upgradeId - The upgrade identifier
+   * @returns The new level of the upgrade
+   */
+  purchaseMinigameUpgrade: (minigameId: string, upgradeId: string) => number;
+
   // Stats actions
   /**
    * Add to total play time.

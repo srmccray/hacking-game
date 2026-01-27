@@ -19,7 +19,7 @@
  *   const success = purchaseUpgrade(store, 'auto-typer');
  */
 
-import { isGreaterOrEqual, powerDecimals, multiplyDecimals, formatDecimal } from '../core/resources/resource-manager';
+import { isGreaterOrEqual, powerDecimals, multiplyDecimals, addDecimals, formatDecimal } from '../core/resources/resource-manager';
 import type { GameStore } from '../core/state/game-store';
 import type { ResourceType } from '../core/types';
 import type { GameConfig } from '../game/GameConfig';
@@ -31,7 +31,7 @@ import type { GameConfig } from '../game/GameConfig';
 /**
  * Categories of upgrades
  */
-export type UpgradeCategory = 'equipment' | 'apartment' | 'consumable' | 'hardware';
+export type UpgradeCategory = 'equipment' | 'apartment' | 'consumable' | 'hardware' | 'minigame';
 
 /**
  * Equipment upgrade effect types
@@ -51,6 +51,14 @@ export type ApartmentEffectType =
  */
 export type ConsumableEffectType =
   | 'grant_resource'; // Grants a resource on purchase
+
+/**
+ * Minigame upgrade effect types
+ */
+export type MinigameEffectType =
+  | 'gap_width_bonus' // Increases Code Runner gap width
+  | 'wall_spacing_bonus' // Increases Code Runner vertical wall spacing
+  | 'move_speed_bonus'; // Increases Code Runner player move speed
 
 /**
  * Hardware upgrade effect types (requires dual currency)
@@ -138,9 +146,26 @@ export interface HardwareUpgrade extends BaseUpgrade {
 }
 
 /**
+ * Minigame upgrade (can be purchased multiple times, stored per-minigame)
+ */
+export interface MinigameUpgrade extends BaseUpgrade {
+  category: 'minigame';
+  /** The minigame this upgrade belongs to */
+  minigameId: string;
+  /** Cost growth: additive increment per level (e.g., 5 means cost goes 10, 15, 20, 25...) */
+  costIncrement: string;
+  /** Effect type identifier */
+  effectType: MinigameEffectType;
+  /** Base effect value at level 1 */
+  baseEffect: number;
+  /** Effect increase per level */
+  effectPerLevel: number;
+}
+
+/**
  * Union type for all upgrades
  */
-export type Upgrade = EquipmentUpgrade | ApartmentUpgrade | ConsumableUpgrade | HardwareUpgrade;
+export type Upgrade = EquipmentUpgrade | ApartmentUpgrade | ConsumableUpgrade | HardwareUpgrade | MinigameUpgrade;
 
 // ============================================================================
 // Upgrade Definitions
@@ -235,6 +260,66 @@ const bookSummarizerUpgrade: HardwareUpgrade = {
   automationId: 'book-summarizer',
 };
 
+/**
+ * Gap Expander (Minigame - Code Runner)
+ * Increases the gap width in Code Runner walls.
+ * Cost: 10 TP base, +5 TP per level (10, 15, 20, 25...)
+ */
+const gapExpanderUpgrade: MinigameUpgrade = {
+  id: 'gap-expander',
+  name: 'Gap Expander',
+  description: 'Widens the gap in code walls. Each level adds +1 character width to the gap.',
+  category: 'minigame',
+  minigameId: 'code-runner',
+  costResource: 'technique',
+  baseCost: '10',
+  maxLevel: 0, // Unlimited
+  costIncrement: '5', // +5 TP per level
+  effectType: 'gap_width_bonus',
+  baseEffect: 0, // No base bonus (gap width already has a base from config)
+  effectPerLevel: 10, // +10 pixels per level (approximately 1 character width)
+};
+
+/**
+ * Buffer Overflow (Minigame - Code Runner)
+ * Increases the vertical space between walls in Code Runner.
+ * Cost: 10 TP base, +10 TP per level (10, 20, 30, 40...)
+ */
+const bufferOverflowUpgrade: MinigameUpgrade = {
+  id: 'buffer-overflow',
+  name: 'Buffer Overflow',
+  description: 'Overflows the code buffer, adding more space between walls. Each level adds ~1 character height of vertical spacing.',
+  category: 'minigame',
+  minigameId: 'code-runner',
+  costResource: 'technique',
+  baseCost: '10',
+  maxLevel: 0, // Unlimited
+  costIncrement: '10', // +10 TP per level (10, 20, 30, 40...)
+  effectType: 'wall_spacing_bonus',
+  baseEffect: 0, // No base bonus (spacing already has a base from config)
+  effectPerLevel: 15, // +15 pixels per level (approximately 1 character height)
+};
+
+/**
+ * Overclock (Minigame - Code Runner)
+ * Increases the player's movement speed in Code Runner.
+ * Cost: 10 TP base, +5 TP per level (10, 15, 20, 25...)
+ */
+const overclockUpgrade: MinigameUpgrade = {
+  id: 'overclock',
+  name: 'Overclock',
+  description: 'Overclocks your processor for faster reflexes. Each level increases move speed.',
+  category: 'minigame',
+  minigameId: 'code-runner',
+  costResource: 'technique',
+  baseCost: '10',
+  maxLevel: 0, // Unlimited
+  costIncrement: '5', // +5 TP per level (10, 15, 20, 25...)
+  effectType: 'move_speed_bonus',
+  baseEffect: 0, // No base bonus (speed already has a base from config)
+  effectPerLevel: 25, // +25 pixels/sec per level (roughly 10% of base 250)
+};
+
 // ============================================================================
 // Upgrade Registry
 // ============================================================================
@@ -248,6 +333,9 @@ const UPGRADES: Record<string, Upgrade> = {
   'coffee-machine': coffeeMachineUpgrade,
   'training-manual': trainingManualUpgrade,
   'book-summarizer': bookSummarizerUpgrade,
+  'gap-expander': gapExpanderUpgrade,
+  'buffer-overflow': bufferOverflowUpgrade,
+  'overclock': overclockUpgrade,
 };
 
 /**
@@ -258,6 +346,7 @@ export const UPGRADES_BY_CATEGORY: Record<UpgradeCategory, Upgrade[]> = {
   apartment: [coffeeMachineUpgrade],
   consumable: [trainingManualUpgrade],
   hardware: [bookSummarizerUpgrade],
+  minigame: [gapExpanderUpgrade, bufferOverflowUpgrade, overclockUpgrade],
 };
 
 /**
@@ -298,6 +387,17 @@ export function getUpgradesByCategory(category: UpgradeCategory): Upgrade[] {
   return UPGRADES_BY_CATEGORY[category] || [];
 }
 
+/**
+ * Get minigame upgrades for a specific minigame.
+ *
+ * @param minigameId - The minigame identifier
+ * @returns Array of minigame upgrades for that minigame
+ */
+export function getMinigameUpgrades(minigameId: string): MinigameUpgrade[] {
+  return UPGRADES_BY_CATEGORY.minigame
+    .filter((u): u is MinigameUpgrade => u.category === 'minigame' && u.minigameId === minigameId);
+}
+
 // ============================================================================
 // Level Accessors
 // ============================================================================
@@ -329,6 +429,13 @@ export function getUpgradeLevel(store: GameStore, upgradeId: string): number {
     case 'hardware':
       // Hardware upgrades are one-time, stored in apartment (boolean)
       return state.upgrades.apartment[upgradeId] ? 1 : 0;
+
+    case 'minigame': {
+      // Minigame upgrades are stored in minigames[minigameId].upgrades
+      const minigameUpgrade = upgrade as MinigameUpgrade;
+      const minigameState = state.minigames[minigameUpgrade.minigameId];
+      return minigameState?.upgrades[upgradeId] ?? 0;
+    }
 
     default:
       return 0;
@@ -386,6 +493,13 @@ export function calculateUpgradeCost(
     const consumable = upgrade as ConsumableUpgrade;
     const multiplier = powerDecimals(consumable.costGrowthRate, level);
     return multiplyDecimals(consumable.baseCost, multiplier);
+  }
+
+  // Minigame upgrades have linear cost: baseCost + costIncrement * level
+  if (upgrade.category === 'minigame') {
+    const minigame = upgrade as MinigameUpgrade;
+    const incrementTotal = multiplyDecimals(minigame.costIncrement, String(level));
+    return addDecimals(minigame.baseCost, incrementTotal);
   }
 
   // Equipment upgrades have exponential scaling
@@ -500,6 +614,11 @@ export function getUpgradeEffect(store: GameStore, upgradeId: string): number {
       return level > 0 ? 1 : 0;
     }
 
+    case 'minigame': {
+      const mg = upgrade as MinigameUpgrade;
+      return mg.baseEffect + mg.effectPerLevel * level;
+    }
+
     default:
       return 0;
   }
@@ -556,6 +675,20 @@ export function getUpgradeEffectFormatted(store: GameStore, upgradeId: string): 
       return level > 0 ? 'Owned' : 'Not owned';
     }
 
+    case 'minigame': {
+      const mg = upgrade as MinigameUpgrade;
+      if (mg.effectType === 'gap_width_bonus') {
+        return level > 0 ? `+${level} gap width` : '+1 gap width';
+      }
+      if (mg.effectType === 'wall_spacing_bonus') {
+        return level > 0 ? `+${level} wall spacing` : '+1 wall spacing';
+      }
+      if (mg.effectType === 'move_speed_bonus') {
+        return level > 0 ? `+${level} move speed` : '+1 move speed';
+      }
+      return `${effect}`;
+    }
+
     default:
       return '';
   }
@@ -593,6 +726,36 @@ export function getComboMultiplierBonus(store: GameStore): number {
  */
 export function getMinigameTimeBonus(store: GameStore): number {
   return getUpgradeEffect(store, 'coffee-machine');
+}
+
+/**
+ * Get the Code Runner gap width bonus from upgrades.
+ *
+ * @param store - The game store
+ * @returns The bonus pixels to add to gap width
+ */
+export function getGapWidthBonus(store: GameStore): number {
+  return getUpgradeEffect(store, 'gap-expander');
+}
+
+/**
+ * Get the Code Runner wall spacing bonus from upgrades.
+ *
+ * @param store - The game store
+ * @returns The bonus pixels to add to vertical wall spacing
+ */
+export function getWallSpacingBonus(store: GameStore): number {
+  return getUpgradeEffect(store, 'buffer-overflow');
+}
+
+/**
+ * Get the Code Runner move speed bonus from upgrades.
+ *
+ * @param store - The game store
+ * @returns The bonus pixels/sec to add to player move speed
+ */
+export function getMoveSpeedBonus(store: GameStore): number {
+  return getUpgradeEffect(store, 'overclock');
 }
 
 // ============================================================================
@@ -674,6 +837,13 @@ export function purchaseUpgrade(store: GameStore, upgradeId: string): boolean {
       // Hardware upgrades are one-time, stored in apartment
       // They may enable automations (handled by the game system)
       state.purchaseApartmentUpgrade(upgradeId);
+      break;
+    }
+
+    case 'minigame': {
+      // Minigame upgrades are stored in minigames[minigameId].upgrades
+      const minigameUpgrade = upgrade as MinigameUpgrade;
+      state.purchaseMinigameUpgrade(minigameUpgrade.minigameId, upgradeId);
       break;
     }
   }

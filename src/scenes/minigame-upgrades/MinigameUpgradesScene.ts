@@ -1,20 +1,21 @@
 /**
  * Minigame Upgrades Scene
  *
- * Displays upgrades available for a specific minigame, along with the
+ * Displays purchasable upgrades for a specific minigame, along with the
  * player's current TP (Technique Points) balance.
  *
  * Visual Layout:
  * +------------------------------------------+
  * |              UPGRADES                    |
- * |           Code Breaker                   |
+ * |           Code Runner                    |
  * +------------------------------------------+
- * |                                          |
  * |           TP Balance: 1.23K TP           |
+ * +------------------------------------------+
  * |                                          |
- * |            Coming Soon...                |
+ * |   > Gap Expander (Lv 2)  15 TP  +2 gap  |
  * |                                          |
  * +------------------------------------------+
+ * |  [Up/Down] Select  [Enter] Purchase      |
  * |  [Esc] Back                              |
  * +------------------------------------------+
  *
@@ -37,6 +38,12 @@ import {
 } from '../../rendering/styles';
 import { formatResource } from '../../core/resources/resource-manager';
 import { createMinigameInterstitialScene } from '../minigame-interstitial';
+import {
+  getMinigameUpgrades,
+  getUpgradeDisplayInfo,
+  purchaseUpgrade,
+  type UpgradeDisplayInfo,
+} from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
 // Configuration
@@ -47,13 +54,17 @@ const LAYOUT = {
   /** Padding from edges */
   PADDING: 60,
   /** Title Y position */
-  TITLE_Y: 100,
+  TITLE_Y: 80,
   /** Minigame name Y position */
-  MINIGAME_NAME_Y: 150,
+  MINIGAME_NAME_Y: 130,
   /** TP Balance Y position */
-  TP_BALANCE_Y: 240,
-  /** Coming soon message Y position */
-  COMING_SOON_Y: 320,
+  TP_BALANCE_Y: 200,
+  /** Upgrade list start Y position */
+  UPGRADE_LIST_Y: 270,
+  /** Height of each upgrade row */
+  UPGRADE_ROW_HEIGHT: 40,
+  /** No upgrades message Y position */
+  NO_UPGRADES_Y: 320,
   /** Instructions Y offset from bottom */
   INSTRUCTIONS_BOTTOM_OFFSET: 80,
 } as const;
@@ -83,6 +94,15 @@ class MinigameUpgradesScene implements Scene {
   /** TP balance text element for updates */
   private tpBalanceText: Text | null = null;
 
+  /** Upgrade row containers for visual updates */
+  private upgradeRows: Container[] = [];
+
+  /** Currently selected upgrade index */
+  private selectedIndex = 0;
+
+  /** Upgrade IDs available for this minigame */
+  private upgradeIds: string[] = [];
+
   /** Store unsubscribe function */
   private unsubscribe: (() => void) | null = null;
 
@@ -92,6 +112,9 @@ class MinigameUpgradesScene implements Scene {
     this.id = `minigame-upgrades-${minigameId}`;
     this.container = new Container();
     this.container.label = 'minigame-upgrades-scene';
+
+    // Collect upgrade IDs for this minigame
+    this.upgradeIds = getMinigameUpgrades(minigameId).map(u => u.id);
   }
 
   // ==========================================================================
@@ -114,8 +137,12 @@ class MinigameUpgradesScene implements Scene {
     // Create TP balance display
     this.createTPBalance();
 
-    // Create coming soon placeholder
-    this.createComingSoon();
+    // Create upgrade list or empty message
+    if (this.upgradeIds.length > 0) {
+      this.createUpgradeList();
+    } else {
+      this.createNoUpgrades();
+    }
 
     // Create instructions
     this.createInstructions();
@@ -123,7 +150,7 @@ class MinigameUpgradesScene implements Scene {
     // Register input context
     this.registerInputContext();
 
-    // Subscribe to store updates for TP balance
+    // Subscribe to store updates
     this.subscribeToStore();
   }
 
@@ -162,6 +189,7 @@ class MinigameUpgradesScene implements Scene {
 
     // Clear references
     this.tpBalanceText = null;
+    this.upgradeRows = [];
 
     // Destroy container and children
     this.container.destroy({ children: true });
@@ -184,7 +212,7 @@ class MinigameUpgradesScene implements Scene {
 
     // Border
     bg.stroke({ color: COLORS.TERMINAL_GREEN, width: 2, alpha: 0.5 });
-    bg.rect(LAYOUT.PADDING - 20, LAYOUT.TITLE_Y - 40, width - (LAYOUT.PADDING - 20) * 2, height - LAYOUT.TITLE_Y);
+    bg.rect(LAYOUT.PADDING - 20, LAYOUT.TITLE_Y - 30, width - (LAYOUT.PADDING - 20) * 2, height - LAYOUT.TITLE_Y);
     bg.stroke();
 
     this.container.addChild(bg);
@@ -254,13 +282,106 @@ class MinigameUpgradesScene implements Scene {
   }
 
   /**
-   * Create coming soon placeholder.
+   * Create the upgrade list.
    */
-  private createComingSoon(): void {
+  private createUpgradeList(): void {
+    this.upgradeRows = [];
+
+    for (let i = 0; i < this.upgradeIds.length; i++) {
+      const upgradeId = this.upgradeIds[i];
+      if (!upgradeId) {
+        continue;
+      }
+
+      const info = getUpgradeDisplayInfo(this.game.store, upgradeId);
+
+      if (info) {
+        const row = this.createUpgradeRow(info, i);
+        row.y = LAYOUT.UPGRADE_LIST_Y + i * LAYOUT.UPGRADE_ROW_HEIGHT;
+        this.container.addChild(row);
+        this.upgradeRows.push(row);
+      }
+    }
+
+    // Update selection highlight
+    this.updateSelection();
+  }
+
+  /**
+   * Create a single upgrade row.
+   */
+  private createUpgradeRow(info: UpgradeDisplayInfo, index: number): Container {
+    const { width } = this.game.config.canvas;
+    const row = new Container();
+    row.label = `upgrade-row-${info.id}`;
+
+    // Selection indicator
+    const selector = new Text({
+      text: index === this.selectedIndex ? '>' : ' ',
+      style: terminalBrightStyle,
+    });
+    selector.label = 'selector';
+    selector.x = LAYOUT.PADDING;
+    row.addChild(selector);
+
+    // Upgrade name with level (if applicable)
+    const nameText = info.maxLevel === 0
+      ? `${info.name} (Lv ${info.level})`
+      : info.name;
+
+    const name = new Text({
+      text: nameText,
+      style: info.canAfford ? terminalBrightStyle : terminalDimStyle,
+    });
+    name.label = 'name';
+    name.x = LAYOUT.PADDING + 30;
+    row.addChild(name);
+
+    // Cost
+    const costStyle = new TextStyle({
+      fontFamily: FONT_FAMILY,
+      fontSize: FONT_SIZES.NORMAL,
+      fill: info.isMaxed
+        ? COLORS.TERMINAL_DIM
+        : info.canAfford
+          ? COLORS.TERMINAL_YELLOW
+          : COLORS.TERMINAL_RED,
+    });
+
+    const costText = info.isMaxed
+      ? 'MAXED'
+      : formatResource(info.costResource, info.cost);
+
+    const cost = new Text({
+      text: costText,
+      style: costStyle,
+    });
+    cost.label = 'cost';
+    cost.anchor.set(0, 0);
+    cost.x = width / 2 + 20;
+    row.addChild(cost);
+
+    // Effect
+    const effect = new Text({
+      text: info.effect,
+      style: terminalDimStyle,
+    });
+    effect.label = 'effect';
+    effect.anchor.set(1, 0);
+    effect.x = width - LAYOUT.PADDING - 20;
+    row.addChild(effect);
+
+    return row;
+  }
+
+  /**
+   * Create "No upgrades available" message.
+   */
+  private createNoUpgrades(): void {
     const { width } = this.game.config.canvas;
 
-    const comingSoon = new Text({
-      text: 'Coming Soon...',
+    const noUpgrades = new Text({
+      text: 'No upgrades available yet.',
       style: new TextStyle({
         fontFamily: FONT_FAMILY,
         fontSize: FONT_SIZES.LARGE,
@@ -268,10 +389,10 @@ class MinigameUpgradesScene implements Scene {
         fontStyle: 'italic',
       }),
     });
-    comingSoon.anchor.set(0.5, 0);
-    comingSoon.x = width / 2;
-    comingSoon.y = LAYOUT.COMING_SOON_Y;
-    this.container.addChild(comingSoon);
+    noUpgrades.anchor.set(0.5, 0);
+    noUpgrades.x = width / 2;
+    noUpgrades.y = LAYOUT.NO_UPGRADES_Y;
+    this.container.addChild(noUpgrades);
   }
 
   /**
@@ -280,14 +401,109 @@ class MinigameUpgradesScene implements Scene {
   private createInstructions(): void {
     const { width, height } = this.game.config.canvas;
 
+    const hasUpgrades = this.upgradeIds.length > 0;
+    const instructionText = hasUpgrades
+      ? '[Up/Down] Select  [Enter] Purchase  [Esc] Back'
+      : '[Esc] Back';
+
     const instructions = new Text({
-      text: '[Esc] Back',
+      text: instructionText,
       style: terminalDimStyle,
     });
     instructions.anchor.set(0.5, 0);
     instructions.x = width / 2;
     instructions.y = height - LAYOUT.INSTRUCTIONS_BOTTOM_OFFSET;
     this.container.addChild(instructions);
+  }
+
+  // ==========================================================================
+  // Selection and Purchase
+  // ==========================================================================
+
+  /**
+   * Update the visual selection state.
+   */
+  private updateSelection(): void {
+    for (let i = 0; i < this.upgradeRows.length; i++) {
+      const row = this.upgradeRows[i];
+      if (!row) {
+        continue;
+      }
+      const selector = row.getChildByLabel('selector') as Text | null;
+      if (selector) {
+        selector.text = i === this.selectedIndex ? '>' : ' ';
+      }
+    }
+  }
+
+  /**
+   * Move selection up.
+   */
+  private selectUp(): void {
+    if (this.selectedIndex > 0) {
+      this.selectedIndex--;
+      this.updateSelection();
+    }
+  }
+
+  /**
+   * Move selection down.
+   */
+  private selectDown(): void {
+    if (this.selectedIndex < this.upgradeIds.length - 1) {
+      this.selectedIndex++;
+      this.updateSelection();
+    }
+  }
+
+  /**
+   * Attempt to purchase the selected upgrade.
+   */
+  private purchaseSelected(): void {
+    const upgradeId = this.upgradeIds[this.selectedIndex];
+    if (!upgradeId) {
+      return;
+    }
+
+    const success = purchaseUpgrade(this.game.store, upgradeId);
+
+    if (success) {
+      console.log(`[MinigameUpgradesScene] Purchased upgrade: ${upgradeId}`);
+      // Refresh the entire upgrade list to reflect changes
+      this.refreshUpgradeList();
+    } else {
+      console.log(`[MinigameUpgradesScene] Could not purchase upgrade: ${upgradeId}`);
+    }
+  }
+
+  /**
+   * Refresh the upgrade list after a purchase.
+   */
+  private refreshUpgradeList(): void {
+    // Remove existing rows
+    for (const row of this.upgradeRows) {
+      row.destroy({ children: true });
+    }
+    this.upgradeRows = [];
+
+    // Recreate
+    for (let i = 0; i < this.upgradeIds.length; i++) {
+      const upgradeId = this.upgradeIds[i];
+      if (!upgradeId) {
+        continue;
+      }
+
+      const info = getUpgradeDisplayInfo(this.game.store, upgradeId);
+
+      if (info) {
+        const row = this.createUpgradeRow(info, i);
+        row.y = LAYOUT.UPGRADE_LIST_Y + i * LAYOUT.UPGRADE_ROW_HEIGHT;
+        this.container.addChild(row);
+        this.upgradeRows.push(row);
+      }
+    }
+
+    this.updateSelection();
   }
 
   // ==========================================================================
@@ -302,6 +518,8 @@ class MinigameUpgradesScene implements Scene {
       // Update TP balance display if changed
       if (state.resources.technique !== prevState.resources.technique && this.tpBalanceText) {
         this.tpBalanceText.text = `TP Balance: ${formatResource('technique', state.resources.technique)}`;
+        // Also refresh upgrade list for affordability
+        this.refreshUpgradeList();
       }
     });
   }
@@ -333,6 +551,18 @@ class MinigameUpgradesScene implements Scene {
    */
   private registerInputContext(): void {
     const bindings = new Map<string, { onPress?: () => void; onRelease?: () => void }>();
+
+    // Navigation (only if upgrades exist)
+    if (this.upgradeIds.length > 0) {
+      bindings.set('ArrowUp', { onPress: () => this.selectUp() });
+      bindings.set('ArrowDown', { onPress: () => this.selectDown() });
+      bindings.set('KeyW', { onPress: () => this.selectUp() });
+      bindings.set('KeyS', { onPress: () => this.selectDown() });
+
+      // Purchase
+      bindings.set('Enter', { onPress: () => this.purchaseSelected() });
+      bindings.set('Space', { onPress: () => this.purchaseSelected() });
+    }
 
     // Back
     bindings.set('Escape', { onPress: () => this.goBack() });

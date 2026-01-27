@@ -142,6 +142,15 @@ export class CodeRunnerGame extends BaseMinigame {
   /** Counter for generating unique obstacle IDs */
   private _nextObstacleId: number = 0;
 
+  /** Bonus gap width from upgrades (in pixels) */
+  private readonly _gapWidthBonus: number;
+
+  /** Bonus wall spacing from upgrades (in pixels, converted to spawn rate increase) */
+  private readonly _wallSpacingBonus: number;
+
+  /** Bonus move speed from upgrades (in pixels/sec) */
+  private readonly _moveSpeedBonus: number;
+
   // ==========================================================================
   // Constructor
   // ==========================================================================
@@ -152,12 +161,18 @@ export class CodeRunnerGame extends BaseMinigame {
    * @param config - Configuration from GameConfig.minigames.codeRunner
    * @param canvasWidth - Width of the game area in pixels
    * @param canvasHeight - Height of the game area in pixels
+   * @param gapWidthBonus - Bonus gap width from upgrades (in pixels, default 0)
+   * @param wallSpacingBonus - Bonus vertical wall spacing from upgrades (in pixels, default 0)
+   * @param moveSpeedBonus - Bonus player move speed from upgrades (in pixels/sec, default 0)
    */
-  constructor(config?: CodeRunnerConfig, canvasWidth: number = 800, canvasHeight: number = 600) {
+  constructor(config?: CodeRunnerConfig, canvasWidth: number = 800, canvasHeight: number = 600, gapWidthBonus: number = 0, wallSpacingBonus: number = 0, moveSpeedBonus: number = 0) {
     super();
     this.config = config ?? DEFAULT_CONFIG.minigames.codeRunner;
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
+    this._gapWidthBonus = gapWidthBonus;
+    this._wallSpacingBonus = wallSpacingBonus;
+    this._moveSpeedBonus = moveSpeedBonus;
 
     // Initialize player position
     this._playerX = canvasWidth / 2;
@@ -315,7 +330,7 @@ export class CodeRunnerGame extends BaseMinigame {
 
     // Apply movement
     if (moveDir !== 0) {
-      this._playerX += moveDir * this.config.playerSpeed * deltaSec;
+      this._playerX += moveDir * (this.config.playerSpeed + this._moveSpeedBonus) * deltaSec;
 
       // Clamp to screen bounds (accounting for player width)
       const halfWidth = this.config.playerHitboxSize.width / 2;
@@ -351,14 +366,21 @@ export class CodeRunnerGame extends BaseMinigame {
     // Handle obstacle spawning with initial delay
     this._spawnTimer += deltaMs;
 
+    // Calculate effective spawn rate including wall spacing bonus
+    // Bonus is in pixels; convert to milliseconds: bonusMs = bonusPx / scrollSpeed * 1000
+    const spacingBonusMs = this._wallSpacingBonus > 0
+      ? (this._wallSpacingBonus / this.config.scrollSpeed) * 1000
+      : 0;
+    const effectiveSpawnRate = this.config.obstacleSpawnRate + spacingBonusMs;
+
     if (!this._initialDelayPassed) {
       if (this._spawnTimer >= this.config.initialObstacleDelay) {
         this._initialDelayPassed = true;
-        this._spawnTimer = this.config.obstacleSpawnRate; // Spawn immediately after delay
+        this._spawnTimer = effectiveSpawnRate; // Spawn immediately after delay
       }
     }
 
-    if (this._initialDelayPassed && this._spawnTimer >= this.config.obstacleSpawnRate) {
+    if (this._initialDelayPassed && this._spawnTimer >= effectiveSpawnRate) {
       this.spawnObstacle();
       this._spawnTimer = 0;
     }
@@ -371,7 +393,7 @@ export class CodeRunnerGame extends BaseMinigame {
     // Calculate gap position - ensure gap is at least gapWidth and has margins from edges
     const minGapStart = 40; // Minimum margin from left edge
     const maxGapEnd = this.canvasWidth - 40; // Minimum margin from right edge
-    const gapWidth = this.config.gapWidth;
+    const gapWidth = this.config.gapWidth + this._gapWidthBonus;
 
     // Random gap start position
     const gapStart = minGapStart + Math.random() * (maxGapEnd - gapWidth - minGapStart);
@@ -535,7 +557,10 @@ export class CodeRunnerGame extends BaseMinigame {
 export function createCodeRunnerGame(
   config?: CodeRunnerConfig,
   canvasWidth?: number,
-  canvasHeight?: number
+  canvasHeight?: number,
+  gapWidthBonus?: number,
+  wallSpacingBonus?: number,
+  moveSpeedBonus?: number
 ): CodeRunnerGame {
-  return new CodeRunnerGame(config, canvasWidth, canvasHeight);
+  return new CodeRunnerGame(config, canvasWidth, canvasHeight, gapWidthBonus, wallSpacingBonus, moveSpeedBonus);
 }
