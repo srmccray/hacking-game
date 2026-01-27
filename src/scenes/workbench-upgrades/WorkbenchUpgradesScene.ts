@@ -41,7 +41,9 @@ import {
   getUpgradeDisplayInfo,
   purchaseUpgrade,
   getUpgradesByCategory,
+  getUpgrade,
   type UpgradeDisplayInfo,
+  type HardwareUpgrade,
 } from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
@@ -331,29 +333,32 @@ class WorkbenchUpgradesScene implements Scene {
     selector.x = LAYOUT.PADDING;
     row.addChild(selector);
 
-    // Upgrade name
+    // Upgrade name - bright if affordable or already owned
     const name = new Text({
       text: info.name,
-      style: info.canAfford ? terminalBrightStyle : terminalDimStyle,
+      style: (info.canAfford || info.isMaxed) ? terminalBrightStyle : terminalDimStyle,
     });
     name.label = 'name';
     name.x = LAYOUT.PADDING + 30;
     row.addChild(name);
 
-    // Cost (dual-cost display for hardware)
-    const costStyle = new TextStyle({
-      fontFamily: FONT_FAMILY,
-      fontSize: FONT_SIZES.NORMAL,
-      fill: info.isMaxed
-        ? COLORS.TERMINAL_DIM
-        : info.canAfford
-          ? COLORS.TERMINAL_YELLOW
-          : COLORS.TERMINAL_RED,
-    });
-
     // Format dual cost: "$100 + 10 TP"
     let costText: string;
-    if (info.isMaxed) {
+    let automationEnabled = false;
+    let isAutomationToggle = false;
+    if (info.isMaxed && info.category === 'hardware') {
+      // Show automation toggle state for owned hardware upgrades
+      const upgrade = getUpgrade(info.id) as HardwareUpgrade | undefined;
+      const automationId = upgrade?.automationId;
+      if (automationId) {
+        const automationState = this.game.store.getState().automations[automationId];
+        automationEnabled = automationState?.enabled ?? true;
+        isAutomationToggle = true;
+        costText = automationEnabled ? '[ENABLED]' : '[DISABLED]';
+      } else {
+        costText = 'OWNED';
+      }
+    } else if (info.isMaxed) {
       costText = 'OWNED';
     } else if (info.secondaryCostFormatted && info.secondaryCostResource) {
       const primaryCost = formatResource(info.costResource, info.cost);
@@ -362,6 +367,24 @@ class WorkbenchUpgradesScene implements Scene {
     } else {
       costText = formatResource(info.costResource, info.cost);
     }
+
+    // Determine cost color based on state
+    let costFill: number;
+    if (isAutomationToggle) {
+      costFill = automationEnabled ? COLORS.TERMINAL_GREEN : COLORS.TERMINAL_RED;
+    } else if (info.isMaxed) {
+      costFill = COLORS.TERMINAL_DIM;
+    } else if (info.canAfford) {
+      costFill = COLORS.TERMINAL_YELLOW;
+    } else {
+      costFill = COLORS.TERMINAL_RED;
+    }
+
+    const costStyle = new TextStyle({
+      fontFamily: FONT_FAMILY,
+      fontSize: FONT_SIZES.NORMAL,
+      fill: costFill,
+    });
 
     const cost = new Text({
       text: costText,
@@ -392,7 +415,7 @@ class WorkbenchUpgradesScene implements Scene {
     const { width, height } = this.game.config.canvas;
 
     const instructions = new Text({
-      text: '[Up/Down] Select  [Enter] Purchase  [Esc] Back',
+      text: '[Up/Down] Select  [Enter] Purchase/Toggle  [Esc] Back',
       style: terminalDimStyle,
     });
     instructions.anchor.set(0.5, 0);
@@ -444,7 +467,9 @@ class WorkbenchUpgradesScene implements Scene {
   }
 
   /**
-   * Attempt to purchase the selected upgrade.
+   * Attempt to purchase or toggle the selected upgrade.
+   * If the upgrade is already owned and is a hardware upgrade with an automation,
+   * toggle the automation enabled/disabled instead of purchasing.
    */
   private purchaseSelected(): void {
     if (this.hardwareUpgradeIds.length === 0) {return;}
@@ -452,6 +477,20 @@ class WorkbenchUpgradesScene implements Scene {
     const upgradeId = this.hardwareUpgradeIds[this.selectedIndex];
     if (!upgradeId) {
       return;
+    }
+
+    // Check if this is an owned hardware upgrade with a toggleable automation
+    const upgrade = getUpgrade(upgradeId);
+    if (upgrade?.category === 'hardware') {
+      const hardwareUpgrade = upgrade as HardwareUpgrade;
+      const state = this.game.store.getState();
+      const isOwned = state.upgrades.apartment[upgradeId] === true;
+
+      if (isOwned && hardwareUpgrade.automationId) {
+        // Toggle the automation
+        this.toggleAutomation(hardwareUpgrade.automationId);
+        return;
+      }
     }
 
     const success = purchaseUpgrade(this.game.store, upgradeId);
@@ -463,6 +502,29 @@ class WorkbenchUpgradesScene implements Scene {
     } else {
       console.log(`[WorkbenchUpgradesScene] Could not purchase upgrade: ${upgradeId}`);
     }
+  }
+
+  /**
+   * Toggle an automation between enabled and disabled.
+   */
+  private toggleAutomation(automationId: string): void {
+    const state = this.game.store.getState();
+    const automationState = state.automations[automationId];
+
+    if (!automationState) {
+      // Initialize and enable the automation if it does not exist yet
+      state.enableAutomation(automationId);
+      console.log(`[WorkbenchUpgradesScene] Initialized and enabled automation: ${automationId}`);
+    } else if (automationState.enabled) {
+      state.disableAutomation(automationId);
+      console.log(`[WorkbenchUpgradesScene] Disabled automation: ${automationId}`);
+    } else {
+      state.enableAutomation(automationId);
+      console.log(`[WorkbenchUpgradesScene] Enabled automation: ${automationId}`);
+    }
+
+    // Refresh to reflect the new toggle state
+    this.refreshUpgradeList();
   }
 
   /**

@@ -52,6 +52,7 @@ import {
   FONT_SIZES,
 } from '../../rendering/styles';
 import { GameEvents } from '../../events/game-events';
+import { getGapWidthBonus, getWallSpacingBonus, getMoveSpeedBonus } from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
 // Configuration
@@ -187,13 +188,19 @@ class CodeRunnerScene implements Scene {
     // Create UI
     this.createUI();
 
-    // Create minigame instance with canvas dimensions
+    // Create minigame instance with canvas dimensions and upgrade bonuses
     const width = this.game.config.canvas.width;
     const height = this.game.config.canvas.height;
+    const gapBonus = getGapWidthBonus(this.game.store);
+    const spacingBonus = getWallSpacingBonus(this.game.store);
+    const speedBonus = getMoveSpeedBonus(this.game.store);
     this.minigame = new CodeRunnerGame(
       this.game.config.minigames.codeRunner,
       width,
-      height
+      height,
+      gapBonus,
+      spacingBonus,
+      speedBonus
     );
 
     // Set up minigame event listeners
@@ -348,6 +355,15 @@ class CodeRunnerScene implements Scene {
   private createGameArea(width: number, height: number): void {
     this.gameArea = new Container();
     this.gameArea.label = 'game-area';
+
+    // Add a mask to clip obstacles that extend beyond the game border
+    const maskGraphic = new Graphics();
+    const maskPad = LAYOUT.PADDING / 2;
+    maskGraphic.rect(maskPad, maskPad, width - LAYOUT.PADDING, height - LAYOUT.PADDING);
+    maskGraphic.fill({ color: 0xffffff });
+    this.container.addChild(maskGraphic);
+    this.gameArea.mask = maskGraphic;
+
     this.container.addChild(this.gameArea);
 
     // Create player container
