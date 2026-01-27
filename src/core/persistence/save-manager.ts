@@ -322,6 +322,7 @@ export class SaveManager {
         equipment: { ...state.upgrades.equipment },
         apartment: { ...state.upgrades.apartment },
       },
+      automations: structuredClone(state.automations),
       settings: { ...state.settings },
       stats: {
         totalPlayTime: state.stats.totalPlayTime,

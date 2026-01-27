@@ -35,6 +35,7 @@ import {
   type GameStoreState,
   type ResourceType,
   type MinigameState,
+  type AutomationState,
   createInitialGameState,
   createDefaultMinigameState,
   MAX_TOP_SCORES,
@@ -360,6 +361,60 @@ export function createGameStore(initialState?: Partial<GameState>): GameStore {
       },
 
       // ======================================================================
+      // Automation Actions
+      // ======================================================================
+
+      enableAutomation: (automationId: string): void => {
+        set((state) => ({
+          automations: {
+            ...state.automations,
+            [automationId]: {
+              enabled: true,
+              lastTriggered: state.automations[automationId]?.lastTriggered ?? Date.now(),
+            },
+          },
+        }));
+      },
+
+      disableAutomation: (automationId: string): void => {
+        set((state) => {
+          const existing = state.automations[automationId];
+          if (!existing) {return state;}
+
+          return {
+            automations: {
+              ...state.automations,
+              [automationId]: {
+                ...existing,
+                enabled: false,
+              },
+            },
+          };
+        });
+      },
+
+      updateAutomationTrigger: (automationId: string, timestamp?: number): void => {
+        set((state) => {
+          const existing = state.automations[automationId];
+          if (!existing) {return state;}
+
+          return {
+            automations: {
+              ...state.automations,
+              [automationId]: {
+                ...existing,
+                lastTriggered: timestamp ?? Date.now(),
+              },
+            },
+          };
+        });
+      },
+
+      getAutomationState: (automationId: string): AutomationState | undefined => {
+        return get().automations[automationId];
+      },
+
+      // ======================================================================
       // Settings Actions
       // ======================================================================
 
@@ -402,6 +457,7 @@ export function createGameStore(initialState?: Partial<GameState>): GameStore {
           resources: state.resources,
           minigames: state.minigames,
           upgrades: state.upgrades,
+          automations: state.automations ?? {},
           settings: state.settings,
           stats: state.stats,
         });

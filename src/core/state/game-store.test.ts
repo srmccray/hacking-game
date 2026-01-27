@@ -372,6 +372,7 @@ describe('game-store', () => {
             equipment: { keyboard: 3 },
             apartment: { desk: true },
           },
+          automations: {},
           settings: {
             offlineProgressEnabled: false,
           },

@@ -92,6 +92,26 @@ export interface UpgradesState {
 }
 
 // ============================================================================
+// Automation Types
+// ============================================================================
+
+/**
+ * State tracking for an automation.
+ * Stores the last time the automation was triggered.
+ */
+export interface AutomationState {
+  /** Whether the automation is enabled */
+  enabled: boolean;
+  /** Timestamp of last trigger (ms since epoch) */
+  lastTriggered: number;
+}
+
+/**
+ * Collection of all automation states, keyed by automation ID.
+ */
+export type AutomationsState = Record<string, AutomationState>;
+
+// ============================================================================
 // Stats Types
 // ============================================================================
 
@@ -161,6 +181,7 @@ export interface GameState {
   resources: Resources;
   minigames: MinigamesState;
   upgrades: UpgradesState;
+  automations: AutomationsState;
   settings: SettingsState;
   stats: StatsState;
 }
@@ -257,6 +278,33 @@ export interface GameActions {
    * @param amount - Amount as Decimal string
    */
   trackResourceEarned: (resource: ResourceType, amount: string) => void;
+
+  // Automation actions
+  /**
+   * Enable an automation.
+   * @param automationId - The automation identifier
+   */
+  enableAutomation: (automationId: string) => void;
+
+  /**
+   * Disable an automation.
+   * @param automationId - The automation identifier
+   */
+  disableAutomation: (automationId: string) => void;
+
+  /**
+   * Update the last triggered time for an automation.
+   * @param automationId - The automation identifier
+   * @param timestamp - Timestamp when triggered (defaults to now)
+   */
+  updateAutomationTrigger: (automationId: string, timestamp?: number) => void;
+
+  /**
+   * Get the state of an automation.
+   * @param automationId - The automation identifier
+   * @returns The automation state or undefined if not found
+   */
+  getAutomationState: (automationId: string) => AutomationState | undefined;
 
   // Settings actions
   /**
@@ -430,6 +478,8 @@ export function createInitialGameState(): GameState {
       equipment: {},
       apartment: {},
     },
+
+    automations: {},
 
     settings: {
       offlineProgressEnabled: true,

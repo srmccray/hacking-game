@@ -25,6 +25,7 @@
 
 import { toDecimal, multiplyDecimals, formatRate, ZERO } from '../resources/resource-manager';
 import { getMoneyGenerationRate, hasActiveGeneration } from './auto-generation';
+import { processAutomations } from './automations';
 import type { GameStore } from '../state/game-store';
 import type { GameConfig } from '../../game/GameConfig';
 
@@ -145,6 +146,9 @@ export class TickEngine {
 
     // Apply auto-generation
     this.applyAutoGeneration(deltaMs);
+
+    // Process automations (uses wall clock time for intervals)
+    processAutomations(this.store, Date.now());
 
     // Track play time
     this.store.getState().addPlayTime(deltaMs);
