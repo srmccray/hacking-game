@@ -31,7 +31,7 @@ import type { GameConfig } from '../game/GameConfig';
 /**
  * Categories of upgrades
  */
-export type UpgradeCategory = 'equipment' | 'apartment';
+export type UpgradeCategory = 'equipment' | 'apartment' | 'consumable' | 'hardware';
 
 /**
  * Equipment upgrade effect types
@@ -45,6 +45,18 @@ export type EquipmentEffectType =
  */
 export type ApartmentEffectType =
   | 'minigame_time_bonus'; // Adds seconds to minigame time limits
+
+/**
+ * Consumable upgrade effect types
+ */
+export type ConsumableEffectType =
+  | 'grant_resource'; // Grants a resource on purchase
+
+/**
+ * Hardware upgrade effect types (requires dual currency)
+ */
+export type HardwareEffectType =
+  | 'enable_automation'; // Enables an automation system
 
 /**
  * Base upgrade definition interface
@@ -94,9 +106,41 @@ export interface ApartmentUpgrade extends BaseUpgrade {
 }
 
 /**
+ * Consumable upgrade (can be purchased multiple times, grants resource on purchase)
+ */
+export interface ConsumableUpgrade extends BaseUpgrade {
+  category: 'consumable';
+  maxLevel: 0; // Unlimited
+  /** Cost growth rate per level (default 1.0 for flat cost) */
+  costGrowthRate: string;
+  /** Effect type identifier */
+  effectType: ConsumableEffectType;
+  /** Resource type granted on purchase */
+  grantResource: ResourceType;
+  /** Amount of resource granted per purchase as Decimal string */
+  grantAmount: string;
+}
+
+/**
+ * Hardware upgrade (one-time purchase, requires BOTH money AND technique)
+ */
+export interface HardwareUpgrade extends BaseUpgrade {
+  category: 'hardware';
+  maxLevel: 1; // One-time purchase
+  /** Secondary cost resource (typically technique) */
+  secondaryCostResource: ResourceType;
+  /** Secondary cost amount as Decimal string */
+  secondaryCost: string;
+  /** Effect type identifier */
+  effectType: HardwareEffectType;
+  /** The automation ID this upgrade enables (for enable_automation effect) */
+  automationId?: string;
+}
+
+/**
  * Union type for all upgrades
  */
-export type Upgrade = EquipmentUpgrade | ApartmentUpgrade;
+export type Upgrade = EquipmentUpgrade | ApartmentUpgrade | ConsumableUpgrade | HardwareUpgrade;
 
 // ============================================================================
 // Upgrade Definitions
@@ -154,6 +198,43 @@ const coffeeMachineUpgrade: ApartmentUpgrade = {
   effectValue: 10, // +10 seconds
 };
 
+/**
+ * Training Manual (Consumable)
+ * Grants TP (Technique Points) on purchase. Can be purchased multiple times.
+ */
+const trainingManualUpgrade: ConsumableUpgrade = {
+  id: 'training-manual',
+  name: 'Training Manual',
+  description: 'Study hacking techniques. Grants +1 TP per purchase.',
+  category: 'consumable',
+  costResource: 'money',
+  baseCost: '10',
+  maxLevel: 0, // Unlimited
+  costGrowthRate: '1.0', // Flat cost - no scaling
+  effectType: 'grant_resource',
+  grantResource: 'technique',
+  grantAmount: '1', // +1 TP per purchase
+};
+
+/**
+ * Book Summarizer (Hardware)
+ * Enables auto-buy automation for technique points.
+ * Requires BOTH money AND technique to purchase.
+ */
+const bookSummarizerUpgrade: HardwareUpgrade = {
+  id: 'book-summarizer',
+  name: 'Book Summarizer',
+  description: 'AI-powered tool that summarizes training materials. Every 60s, converts $10 into +1 TP.',
+  category: 'hardware',
+  costResource: 'money',
+  baseCost: '100',
+  secondaryCostResource: 'technique',
+  secondaryCost: '10',
+  maxLevel: 1, // One-time purchase
+  effectType: 'enable_automation',
+  automationId: 'book-summarizer',
+};
+
 // ============================================================================
 // Upgrade Registry
 // ============================================================================
@@ -165,6 +246,8 @@ const UPGRADES: Record<string, Upgrade> = {
   'auto-typer': autoTyperUpgrade,
   'better-keyboard': betterKeyboardUpgrade,
   'coffee-machine': coffeeMachineUpgrade,
+  'training-manual': trainingManualUpgrade,
+  'book-summarizer': bookSummarizerUpgrade,
 };
 
 /**
@@ -173,6 +256,8 @@ const UPGRADES: Record<string, Upgrade> = {
 export const UPGRADES_BY_CATEGORY: Record<UpgradeCategory, Upgrade[]> = {
   equipment: [autoTyperUpgrade, betterKeyboardUpgrade],
   apartment: [coffeeMachineUpgrade],
+  consumable: [trainingManualUpgrade],
+  hardware: [bookSummarizerUpgrade],
 };
 
 /**
@@ -237,6 +322,14 @@ export function getUpgradeLevel(store: GameStore, upgradeId: string): number {
     case 'apartment':
       return state.upgrades.apartment[upgradeId] ? 1 : 0;
 
+    case 'consumable':
+      // Consumables track purchase count in equipment (reusing storage)
+      return state.upgrades.equipment[upgradeId] ?? 0;
+
+    case 'hardware':
+      // Hardware upgrades are one-time, stored in apartment (boolean)
+      return state.upgrades.apartment[upgradeId] ? 1 : 0;
+
     default:
       return 0;
   }
@@ -281,6 +374,18 @@ export function calculateUpgradeCost(
   // Apartment upgrades have fixed cost
   if (upgrade.category === 'apartment') {
     return upgrade.baseCost;
+  }
+
+  // Hardware upgrades have fixed cost (primary currency)
+  if (upgrade.category === 'hardware') {
+    return upgrade.baseCost;
+  }
+
+  // Consumable upgrades use their growth rate (usually 1.0 for flat cost)
+  if (upgrade.category === 'consumable') {
+    const consumable = upgrade as ConsumableUpgrade;
+    const multiplier = powerDecimals(consumable.costGrowthRate, level);
+    return multiplyDecimals(consumable.baseCost, multiplier);
   }
 
   // Equipment upgrades have exponential scaling
@@ -339,7 +444,21 @@ export function canAffordUpgrade(store: GameStore, upgradeId: string): boolean {
   const currentResource = state.resources[upgrade.costResource];
   const cost = getNextLevelCost(store, upgradeId);
 
-  return isGreaterOrEqual(currentResource, cost);
+  // Check primary cost
+  if (!isGreaterOrEqual(currentResource, cost)) {
+    return false;
+  }
+
+  // Hardware upgrades require checking secondary cost as well
+  if (upgrade.category === 'hardware') {
+    const hardwareUpgrade = upgrade as HardwareUpgrade;
+    const secondaryResource = state.resources[hardwareUpgrade.secondaryCostResource];
+    if (!isGreaterOrEqual(secondaryResource, hardwareUpgrade.secondaryCost)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // ============================================================================
@@ -368,6 +487,17 @@ export function getUpgradeEffect(store: GameStore, upgradeId: string): number {
     case 'apartment': {
       const apt = upgrade as ApartmentUpgrade;
       return level > 0 ? apt.effectValue : 0;
+    }
+
+    case 'consumable': {
+      const consumable = upgrade as ConsumableUpgrade;
+      // Return the grant amount as a number (for display purposes)
+      return parseFloat(consumable.grantAmount);
+    }
+
+    case 'hardware': {
+      // Hardware upgrades are boolean - return 1 if owned, 0 if not
+      return level > 0 ? 1 : 0;
     }
 
     default:
@@ -407,6 +537,23 @@ export function getUpgradeEffectFormatted(store: GameStore, upgradeId: string): 
         return `+${apt.effectValue}s time`;
       }
       return `+${apt.effectValue}s time (locked)`;
+    }
+
+    case 'consumable': {
+      const consumable = upgrade as ConsumableUpgrade;
+      // Show what resource is granted
+      const resourceLabel = consumable.grantResource === 'technique' ? 'TP'
+        : consumable.grantResource === 'renown' ? 'RP'
+        : '$';
+      return `+${consumable.grantAmount} ${resourceLabel}`;
+    }
+
+    case 'hardware': {
+      const hardware = upgrade as HardwareUpgrade;
+      if (hardware.effectType === 'enable_automation') {
+        return level > 0 ? 'ACTIVE' : 'Enables automation';
+      }
+      return level > 0 ? 'Owned' : 'Not owned';
     }
 
     default:
@@ -472,16 +619,37 @@ export function purchaseUpgrade(store: GameStore, upgradeId: string): boolean {
     return false;
   }
 
+  // Check affordability (includes both costs for hardware)
+  if (!canAffordUpgrade(store, upgradeId)) {
+    console.warn(`[Upgrades] Cannot afford upgrade: ${upgradeId}`);
+    return false;
+  }
+
   // Get cost
   const cost = getNextLevelCost(store, upgradeId);
 
-  // Check affordability and deduct
+  // Deduct primary cost
   const state = store.getState();
   const success = state.subtractResource(upgrade.costResource, cost);
 
   if (!success) {
     console.warn(`[Upgrades] Insufficient ${upgrade.costResource} for upgrade: ${upgradeId}`);
     return false;
+  }
+
+  // For hardware upgrades, also deduct secondary cost
+  if (upgrade.category === 'hardware') {
+    const hardwareUpgrade = upgrade as HardwareUpgrade;
+    const secondarySuccess = state.subtractResource(
+      hardwareUpgrade.secondaryCostResource,
+      hardwareUpgrade.secondaryCost
+    );
+    if (!secondarySuccess) {
+      // Refund primary cost if secondary fails (shouldn't happen due to canAffordUpgrade check)
+      state.addResource(upgrade.costResource, cost);
+      console.warn(`[Upgrades] Insufficient ${hardwareUpgrade.secondaryCostResource} for upgrade: ${upgradeId}`);
+      return false;
+    }
   }
 
   // Apply upgrade based on category
@@ -493,6 +661,21 @@ export function purchaseUpgrade(store: GameStore, upgradeId: string): boolean {
     case 'apartment':
       state.purchaseApartmentUpgrade(upgradeId);
       break;
+
+    case 'consumable': {
+      // Consumables grant a resource on purchase and track count in equipment
+      const consumable = upgrade as ConsumableUpgrade;
+      state.addResource(consumable.grantResource, consumable.grantAmount);
+      state.purchaseEquipmentUpgrade(upgradeId); // Reuse equipment counter
+      break;
+    }
+
+    case 'hardware': {
+      // Hardware upgrades are one-time, stored in apartment
+      // They may enable automations (handled by the game system)
+      state.purchaseApartmentUpgrade(upgradeId);
+      break;
+    }
   }
 
   console.log(`[Upgrades] Purchased: ${upgrade.name} (Level ${getUpgradeLevel(store, upgradeId)})`);
@@ -516,6 +699,10 @@ export interface UpgradeDisplayInfo {
   cost: string;
   costFormatted: string;
   costResource: ResourceType;
+  /** Secondary cost for hardware upgrades (optional) */
+  secondaryCost?: string;
+  secondaryCostFormatted?: string;
+  secondaryCostResource?: ResourceType;
   effect: string;
   canAfford: boolean;
   isMaxed: boolean;
@@ -536,7 +723,7 @@ export function getUpgradeDisplayInfo(store: GameStore, upgradeId: string): Upgr
   const maxed = isUpgradeMaxed(store, upgradeId);
   const cost = getNextLevelCost(store, upgradeId);
 
-  return {
+  const displayInfo: UpgradeDisplayInfo = {
     id: upgrade.id,
     name: upgrade.name,
     description: upgrade.description,
@@ -550,6 +737,16 @@ export function getUpgradeDisplayInfo(store: GameStore, upgradeId: string): Upgr
     canAfford: canAffordUpgrade(store, upgradeId),
     isMaxed: maxed,
   };
+
+  // Add secondary cost info for hardware upgrades
+  if (upgrade.category === 'hardware') {
+    const hardwareUpgrade = upgrade as HardwareUpgrade;
+    displayInfo.secondaryCost = hardwareUpgrade.secondaryCost;
+    displayInfo.secondaryCostFormatted = maxed ? 'MAX' : formatDecimal(hardwareUpgrade.secondaryCost);
+    displayInfo.secondaryCostResource = hardwareUpgrade.secondaryCostResource;
+  }
+
+  return displayInfo;
 }
 
 /**

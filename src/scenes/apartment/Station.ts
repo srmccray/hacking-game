@@ -27,7 +27,7 @@ import type { BoundingBox } from './Player';
 // ============================================================================
 
 /** Available station types */
-export type StationType = 'desk' | 'couch' | 'bed';
+export type StationType = 'desk' | 'couch' | 'bed' | 'workbench';
 
 /** Station configuration */
 export interface StationConfig {
@@ -51,6 +51,8 @@ interface StationVisual {
   functional: boolean;
   /** ASCII art representation */
   ascii: string[];
+  /** Custom prompt text (optional, defaults to "[ENTER] Interact") */
+  promptText?: string;
 }
 
 // ============================================================================
@@ -76,13 +78,14 @@ const STATION_VISUALS: Record<StationType, StationVisual> = {
     name: 'COUCH',
     width: 100,
     height: 40,
-    functional: false,
+    functional: true,
     ascii: [
       '  _____  ',
       ' | TV  | ',
       ' |_____| ',
       '[=COUCH=]',
     ],
+    promptText: '[ENTER] Upgrades',
   },
   bed: {
     label: '[B]',
@@ -93,6 +96,19 @@ const STATION_VISUALS: Record<StationType, StationVisual> = {
     ascii: [
       '[==BED==]',
     ],
+  },
+  workbench: {
+    label: '[W]',
+    name: 'WORKBENCH',
+    width: 100,
+    height: 50,
+    functional: true,
+    ascii: [
+      '  [TOOLS]   ',
+      ' |_______|  ',
+      '[=BENCH===] ',
+    ],
+    promptText: '[ENTER] Hardware',
   },
 };
 
@@ -190,7 +206,7 @@ export class Station {
     this.container.addChild(this.asciiContainer);
 
     // Create interaction prompt (hidden by default)
-    this.prompt = this.createInteractionPrompt(visual.functional);
+    this.prompt = this.createInteractionPrompt(visual);
     this.prompt.y = -visual.height - 60;
     this.prompt.visible = false;
     this.container.addChild(this.prompt);
@@ -246,7 +262,7 @@ export class Station {
   /**
    * Create the interaction prompt shown when player is nearby.
    */
-  private createInteractionPrompt(functional: boolean): Container {
+  private createInteractionPrompt(visual: StationVisual): Container {
     const promptContainer = new Container();
     promptContainer.label = 'interaction-prompt';
 
@@ -261,14 +277,16 @@ export class Station {
     bg.stroke();
     promptContainer.addChild(bg);
 
-    // Prompt text
-    const promptText = functional ? '[ENTER] Interact' : 'Coming Soon';
-    const shadowColor = functional ? COLORS.TERMINAL_GREEN : COLORS.TERMINAL_DIM;
+    // Prompt text - use custom prompt text if provided, otherwise default
+    const promptText = visual.functional
+      ? (visual.promptText ?? '[ENTER] Interact')
+      : 'Coming Soon';
+    const shadowColor = visual.functional ? COLORS.TERMINAL_GREEN : COLORS.TERMINAL_DIM;
 
     const textStyle = new TextStyle({
       fontFamily: FONT_FAMILY,
       fontSize: 12,
-      fill: functional ? COLORS.TERMINAL_BRIGHT : COLORS.TERMINAL_DIM,
+      fill: visual.functional ? COLORS.TERMINAL_BRIGHT : COLORS.TERMINAL_DIM,
       dropShadow: {
         color: shadowColor,
         blur: 3,

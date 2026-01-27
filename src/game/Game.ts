@@ -36,6 +36,8 @@ import type { GameInstance } from '../core/types';
 import { createMainMenuScene } from '../scenes/main-menu';
 import { createApartmentScene } from '../scenes/apartment';
 import { createMinigameSelectionScene } from '../scenes/minigame-selection';
+import { createCouchUpgradesScene } from '../scenes/couch-upgrades';
+import { createWorkbenchUpgradesScene } from '../scenes/workbench-upgrades';
 import { MinigameRegistry, registerCodeBreaker, createCodeBreakerScene, registerCodeRunner, createCodeRunnerScene } from '../minigames';
 import { TickEngine } from '../core/progression';
 import { UpgradePanel, InGameMenu, WelcomeBackModal } from '../ui';
@@ -296,6 +298,16 @@ export class Game implements GameInstance {
     // Minigame selection menu
     this.sceneManager.register('minigame-selection', () => {
       return createMinigameSelectionScene(game);
+    });
+
+    // Couch upgrades scene
+    this.sceneManager.register('couch-upgrades', () => {
+      return createCouchUpgradesScene(game);
+    });
+
+    // Workbench upgrades scene (hardware upgrades)
+    this.sceneManager.register('workbench-upgrades', () => {
+      return createWorkbenchUpgradesScene(game);
     });
   }
 

@@ -58,9 +58,10 @@ const APARTMENT_CONFIG = {
   playerStartY: 375,
   /** Station positions - moved down so player can walk between wall and furniture */
   stations: {
-    desk: { x: 150, y: 340 },   // Left
-    couch: { x: 400, y: 340 },  // Center
-    bed: { x: 620, y: 340 },    // Right
+    desk: { x: 150, y: 340 },      // Left
+    couch: { x: 400, y: 340 },     // Center
+    workbench: { x: 550, y: 340 }, // Between window and clock
+    bed: { x: 680, y: 340 },       // Right
   },
 };
 
@@ -446,14 +447,25 @@ class ApartmentScene implements Scene {
     this.stationManager.addStation(desk);
     this.container.addChild(desk.container);
 
-    // Couch station (placeholder)
+    // Couch station (upgrades menu)
     const couch = new Station('couch', APARTMENT_CONFIG.stations.couch.x, APARTMENT_CONFIG.stations.couch.y, {
       onInteract: (): void => {
-        console.log('[ApartmentScene] Couch interaction (placeholder)');
+        console.log('[ApartmentScene] Couch interaction - opening upgrades');
+        void this.game.switchScene('couch-upgrades');
       },
     });
     this.stationManager.addStation(couch);
     this.container.addChild(couch.container);
+
+    // Workbench station (hardware upgrades)
+    const workbench = new Station('workbench', APARTMENT_CONFIG.stations.workbench.x, APARTMENT_CONFIG.stations.workbench.y, {
+      onInteract: (): void => {
+        console.log('[ApartmentScene] Workbench interaction - opening hardware upgrades');
+        void this.game.switchScene('workbench-upgrades');
+      },
+    });
+    this.stationManager.addStation(workbench);
+    this.container.addChild(workbench.container);
 
     // Bed station (placeholder)
     const bed = new Station('bed', APARTMENT_CONFIG.stations.bed.x, APARTMENT_CONFIG.stations.bed.y, {

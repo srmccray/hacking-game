@@ -90,8 +90,8 @@ export interface MinigameCompletedPayload {
  * Payload for upgrade:purchased event.
  */
 export interface UpgradePurchasedPayload {
-  /** Category of the upgrade (equipment, apartment, minigame) */
-  category: 'equipment' | 'apartment' | 'minigame';
+  /** Category of the upgrade (equipment, apartment, minigame, consumable, hardware) */
+  category: 'equipment' | 'apartment' | 'minigame' | 'consumable' | 'hardware';
   /** ID of the upgrade purchased */
   upgradeId: string;
   /** New level after purchase (for equipment) or 1 for apartments */
