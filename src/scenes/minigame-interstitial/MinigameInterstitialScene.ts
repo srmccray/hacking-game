@@ -29,8 +29,10 @@ import { COLORS } from '../../rendering/Renderer';
 import {
   terminalDimStyle,
   terminalBrightStyle,
+  terminalSmallStyle,
   titleStyle,
 } from '../../rendering/styles';
+import { formatDecimal } from '../../core/resources/resource-manager';
 import { createMinigameUpgradesScene } from '../minigame-upgrades';
 
 // ============================================================================
@@ -43,8 +45,10 @@ const LAYOUT = {
   PADDING: 60,
   /** Header Y position */
   HEADER_Y: 120,
+  /** Y position where high scores section starts */
+  HIGH_SCORES_Y: 200,
   /** Y position where menu items start */
-  MENU_START_Y: 250,
+  MENU_START_Y: 310,
   /** Height of each menu item */
   ITEM_HEIGHT: 50,
   /** Instructions Y offset from bottom */
@@ -108,6 +112,9 @@ class MinigameInterstitialScene implements Scene {
 
     // Create header with minigame name
     this.createHeader();
+
+    // Create high scores display
+    this.createHighScores();
 
     // Create menu items
     this.createMenuItems();
@@ -203,6 +210,53 @@ class MinigameInterstitialScene implements Scene {
     divider.lineTo(width - LAYOUT.PADDING, LAYOUT.HEADER_Y + 60);
     divider.stroke();
     this.container.addChild(divider);
+  }
+
+  /**
+   * Create the high scores display section.
+   */
+  private createHighScores(): void {
+    const { width } = this.game.config.canvas;
+    const centerX = width / 2;
+
+    const minigameState = this.game.store.getState().minigames[this.minigameId];
+    const topScores = minigameState?.topScores ?? [];
+    const displayCount = 3;
+
+    // "HIGH SCORES" label
+    const label = new Text({
+      text: 'HIGH SCORES',
+      style: terminalDimStyle,
+    });
+    label.anchor.set(0.5, 0);
+    label.x = centerX;
+    label.y = LAYOUT.HIGH_SCORES_Y;
+    this.container.addChild(label);
+
+    if (topScores.length === 0) {
+      const placeholder = new Text({
+        text: 'No scores yet',
+        style: terminalSmallStyle,
+      });
+      placeholder.anchor.set(0.5, 0);
+      placeholder.x = centerX;
+      placeholder.y = LAYOUT.HIGH_SCORES_Y + 24;
+      this.container.addChild(placeholder);
+    } else {
+      const scoresToShow = topScores.slice(0, displayCount);
+      const scoreLines = scoresToShow
+        .map((score, i) => `${i + 1}. ${formatDecimal(score)}`)
+        .join('   ');
+
+      const scoresText = new Text({
+        text: scoreLines,
+        style: terminalSmallStyle,
+      });
+      scoresText.anchor.set(0.5, 0);
+      scoresText.x = centerX;
+      scoresText.y = LAYOUT.HIGH_SCORES_Y + 24;
+      this.container.addChild(scoresText);
+    }
   }
 
   /**

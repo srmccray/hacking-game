@@ -26,9 +26,14 @@ describe('GameConfig', () => {
     });
 
     it('should have code breaker config', () => {
-      expect(DEFAULT_CONFIG.minigames.codeBreaker.sequenceLength).toBe(5);
-      expect(DEFAULT_CONFIG.minigames.codeBreaker.timeLimitMs).toBe(60000);
+      expect(DEFAULT_CONFIG.minigames.codeBreaker.startingCodeLength).toBe(5);
+      expect(DEFAULT_CONFIG.minigames.codeBreaker.perCodeTimeLimitMs).toBe(5000);
       expect(DEFAULT_CONFIG.minigames.codeBreaker.maxTopScores).toBe(5);
+      expect(DEFAULT_CONFIG.minigames.codeBreaker.characterSet).toBe(
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'
+      );
+      expect(DEFAULT_CONFIG.minigames.codeBreaker.previewDurationMs).toBe(750);
+      expect(DEFAULT_CONFIG.minigames.codeBreaker.timePerExtraCharMs).toBe(300);
     });
 
     it('should have upgrade growth rate as Decimal', () => {
@@ -86,13 +91,13 @@ describe('GameConfig', () => {
     it('should merge nested minigames config', () => {
       const config = createConfig({
         minigames: {
-          codeBreaker: { sequenceLength: 7 },
+          codeBreaker: { startingCodeLength: 7 },
         },
       });
 
-      expect(config.minigames.codeBreaker.sequenceLength).toBe(7);
-      expect(config.minigames.codeBreaker.timeLimitMs).toBe(
-        DEFAULT_CONFIG.minigames.codeBreaker.timeLimitMs
+      expect(config.minigames.codeBreaker.startingCodeLength).toBe(7);
+      expect(config.minigames.codeBreaker.perCodeTimeLimitMs).toBe(
+        DEFAULT_CONFIG.minigames.codeBreaker.perCodeTimeLimitMs
       );
     });
 

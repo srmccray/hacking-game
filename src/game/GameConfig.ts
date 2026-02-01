@@ -82,18 +82,22 @@ export interface AutoGenerationConfig {
  * Code Breaker minigame configuration.
  */
 export interface CodeBreakerConfig {
-  /** Number of digits in each sequence */
-  sequenceLength: number;
-  /** Time limit for the minigame in milliseconds */
-  timeLimitMs: number;
-  /** Base points awarded for completing a sequence */
-  baseSequencePoints: number;
-  /** Additional points per correct digit */
-  pointsPerDigit: number;
-  /** Score to money conversion ratio (score * ratio = money) */
-  scoreToMoneyRatio: number;
+  /** Number of characters in the first code of a round */
+  startingCodeLength: number;
+  /** How many characters to add per subsequent code in a round */
+  lengthIncrement: number;
+  /** Time limit per individual code in milliseconds */
+  perCodeTimeLimitMs: number;
+  /** Base money earned per cracked code (multiplied by code length) */
+  baseMoneyPerCode: number;
   /** Maximum number of top scores to track */
   maxTopScores: number;
+  /** String of all valid characters that can appear in codes */
+  characterSet: string;
+  /** Duration in milliseconds to preview the code before the timer starts */
+  previewDurationMs: number;
+  /** Additional time in milliseconds per character beyond startingCodeLength */
+  timePerExtraCharMs: number;
 }
 
 /**
@@ -220,12 +224,14 @@ export const DEFAULT_CONFIG: GameConfig = {
 
   minigames: {
     codeBreaker: {
-      sequenceLength: 5,
-      timeLimitMs: 60 * 1000, // 60 seconds
-      baseSequencePoints: 100,
-      pointsPerDigit: 10,
-      scoreToMoneyRatio: 1, // 1:1 score to money
+      startingCodeLength: 5,
+      lengthIncrement: 1,
+      perCodeTimeLimitMs: 5000, // 5 seconds per code
+      baseMoneyPerCode: 5, // money = baseMoneyPerCode * codeLength per cracked code
       maxTopScores: 5,
+      characterSet: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*',
+      previewDurationMs: 750, // 750ms preview before timer starts
+      timePerExtraCharMs: 300, // +300ms per char beyond startingCodeLength
     },
     codeRunner: {
       scrollSpeed: 150, // pixels per second
