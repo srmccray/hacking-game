@@ -52,6 +52,7 @@ import {
   createTerminalStyle,
 } from '../../rendering/styles';
 import { GameEvents } from '../../events/game-events';
+import { createMinigameInterstitialScene } from '../../scenes/minigame-interstitial';
 
 // ============================================================================
 // Configuration
@@ -778,7 +779,7 @@ class CodeBreakerScene implements Scene {
 
     // Instructions
     const instructions = new Text({
-      text: 'Press ENTER to play again or ESC to exit',
+      text: 'Press ENTER for menu or ESC to exit',
       style: terminalDimStyle,
     });
     instructions.anchor.set(0.5, 0);
@@ -787,31 +788,6 @@ class CodeBreakerScene implements Scene {
     this.resultsOverlay.addChild(instructions);
 
     this.container.addChild(this.resultsOverlay);
-  }
-
-  /**
-   * Hide the results overlay and optionally restart.
-   */
-  private hideResultsOverlay(restart: boolean): void {
-    if (this.resultsOverlay) {
-      this.container.removeChild(this.resultsOverlay);
-      this.resultsOverlay.destroy({ children: true });
-      this.resultsOverlay = null;
-    }
-
-    this.showingResults = false;
-
-    if (restart && this.minigame) {
-      this.minigame.start();
-
-      // Emit minigame started event
-      this.game.eventBus.emit(GameEvents.MINIGAME_STARTED, {
-        minigameId: this.id,
-        startTime: Date.now(),
-      });
-
-      this.updateDisplay();
-    }
   }
 
   // ==========================================================================
@@ -905,8 +881,13 @@ class CodeBreakerScene implements Scene {
    */
   private handleEnter(): void {
     if (this.showingResults) {
-      // Restart game
-      this.hideResultsOverlay(true);
+      // Return to interstitial menu
+      const interstitialSceneId = `minigame-interstitial-${this.id}`;
+      this.game.sceneManager.register(
+        interstitialSceneId,
+        () => createMinigameInterstitialScene(this.game, this.id)
+      );
+      void this.game.switchScene(interstitialSceneId);
     }
   }
 }
