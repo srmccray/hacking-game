@@ -1,34 +1,29 @@
 /**
  * Code Breaker Scene
  *
- * PixiJS scene for the Code Breaker minigame. Handles:
- * - Visual rendering of the target sequence and player input
- * - Timer, score, and combo display
- * - Input context registration for keyboard handling
- * - Visual feedback for correct/wrong inputs
- * - Results overlay on completion
+ * PixiJS scene for the redesigned Code Breaker minigame. Handles:
+ * - Visual rendering of the target sequence and player input (dynamic length)
+ * - Per-code countdown bar with color transitions
+ * - Raw keydown listener for 44-character input (A-Z, 0-9, !@#$%^&*)
+ * - Stats bar: codes cracked, code length, money
+ * - Results overlay with failure reason, codes cracked, longest code, money
+ * - Upgrade bonus application (getMinigameTimeBonus + getPerCodeTimeBonus)
  *
  * Visual Layout:
  * +------------------------------------------+
  * |  CODE BREAKER                            |
  * +------------------------------------------+
- * |  TARGET: [ 7 ] [ 3 ] [ 9 ] [ 2 ] [ 4 ]   |
- * |  INPUT:  [ 7 ] [ 3 ] [ _ ] [ _ ] [ _ ]   |
+ * |  [=======countdown bar========]          |
+ * |                                          |
+ * |  TARGET: [ A ] [ 3 ] [ # ] [ Z ] [ 7 ]  |
+ * |  INPUT:  [ A ] [ 3 ] [ _ ] [ _ ] [ _ ]  |
  * +------------------------------------------+
- * |  TIME: 00:45   COMBO: x3   SCORE: 1250   |
+ * |  CODES: 5   LENGTH: 9   MONEY: $450      |
  * +------------------------------------------+
- * |  [ESC] Exit                              |
+ * |  Type the code! Wrong input = game over  |
  * +------------------------------------------+
  *
  * Usage:
- *   // Via MinigameRegistry
- *   registry.register({
- *     id: 'code-breaker',
- *     name: 'Code Breaker',
- *     createScene: (game) => createCodeBreakerScene(game),
- *   });
- *
- *   // Direct usage
  *   const scene = createCodeBreakerScene(game);
  *   sceneManager.register('code-breaker', () => scene);
  */
@@ -39,7 +34,7 @@ import type { Game } from '../../game/Game';
 import type { InputContext } from '../../input/InputManager';
 import { INPUT_PRIORITY } from '../../input/InputManager';
 import { CodeBreakerGame } from './CodeBreakerGame';
-import { formatTimeMMSS, formatCombo } from '../BaseMinigame';
+import type { FailReason } from './CodeBreakerGame';
 import { COLORS } from '../../rendering/Renderer';
 import {
   terminalStyle,
@@ -47,12 +42,15 @@ import {
   terminalBrightStyle,
   titleStyle,
   scoreStyle,
-  comboStyle,
   hudStyle,
   createTerminalStyle,
 } from '../../rendering/styles';
 import { GameEvents } from '../../events/game-events';
 import { createMinigameInterstitialScene } from '../../scenes/minigame-interstitial';
+import {
+  getMinigameTimeBonus,
+  getPerCodeTimeBonus,
+} from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
 // Configuration
@@ -64,18 +62,32 @@ const LAYOUT = {
   PADDING: 40,
   /** Header height */
   HEADER_HEIGHT: 60,
-  /** Spacing between digit boxes */
-  DIGIT_SPACING: 60,
-  /** Size of digit boxes */
-  DIGIT_BOX_SIZE: 50,
+  /** Maximum size of character boxes */
+  MAX_BOX_SIZE: 50,
+  /** Minimum size of character boxes */
+  MIN_BOX_SIZE: 24,
+  /** Spacing ratio between boxes (relative to box size) */
+  BOX_SPACING_RATIO: 1.2,
   /** Gap between target and input rows */
-  ROW_GAP: 30,
-  /** Y position of target row (from center) */
-  TARGET_Y_OFFSET: -80,
-  /** Y position of stats bar */
-  STATS_Y_OFFSET: 100,
-  /** Y position of instructions */
-  INSTRUCTIONS_Y_OFFSET: 160,
+  ROW_GAP: 20,
+  /** Y position of countdown bar (from top) */
+  COUNTDOWN_BAR_Y: 110,
+  /** Height of countdown bar */
+  COUNTDOWN_BAR_HEIGHT: 16,
+  /** Y position of code display area (from top) */
+  CODE_DISPLAY_Y: 160,
+  /** Y position of stats bar (from bottom) */
+  STATS_Y_FROM_BOTTOM: 80,
+  /** Y position of instructions (from bottom) */
+  INSTRUCTIONS_Y_FROM_BOTTOM: 40,
+} as const;
+
+/** Colors for countdown bar */
+const BAR_COLORS = {
+  GREEN: 0x00ff00,
+  YELLOW: 0xffff00,
+  RED: 0xff4444,
+  PREVIEW: 0x00bbff,
 } as const;
 
 // ============================================================================
@@ -97,21 +109,40 @@ class CodeBreakerScene implements Scene {
   /** The Code Breaker game logic */
   private minigame: CodeBreakerGame | null = null;
 
-  /** Input context for this scene */
+  /** Input context for this scene (Escape/Enter only) */
   private inputContext: InputContext | null = null;
 
   /** Whether results overlay is showing */
   private showingResults: boolean = false;
 
-  // UI Elements
-  private targetDigitTexts: Text[] = [];
-  private targetDigitBoxes: Graphics[] = [];
-  private inputDigitTexts: Text[] = [];
-  private inputDigitBoxes: Graphics[] = [];
-  private timerText: Text | null = null;
-  private comboText: Text | null = null;
-  private scoreText: Text | null = null;
+  /** Raw keydown event handler reference (for cleanup) */
+  private rawKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
+
+  /** Running total of money accumulated (for display) */
+  private accumulatedMoney: number = 0;
+
+  /** Longest code length reached this session */
+  private longestCodeLength: number = 0;
+
+  // UI Elements - Static
+  private countdownBarBg: Graphics | null = null;
+  private countdownBarFill: Graphics | null = null;
+  private countdownTimeText: Text | null = null;
+
+  // UI Elements - Dynamic (rebuilt per code)
+  private codeDisplayContainer: Container | null = null;
+  private targetBoxes: Graphics[] = [];
+  private targetTexts: Text[] = [];
+  private inputBoxes: Graphics[] = [];
+  private inputTexts: Text[] = [];
+
+  // UI Elements - Stats
+  private codesText: Text | null = null;
+  private lengthText: Text | null = null;
+  private moneyText: Text | null = null;
   private statusText: Text | null = null;
+
+  // Results overlay
   private resultsOverlay: Container | null = null;
 
   // Event unsubscribers
@@ -134,17 +165,27 @@ class CodeBreakerScene implements Scene {
   onEnter(): void {
     console.log('[CodeBreakerScene] Entering scene');
 
-    // Create UI
+    // Create static UI elements
     this.createUI();
 
     // Create minigame instance
     this.minigame = new CodeBreakerGame(this.game.config.minigames.codeBreaker);
 
+    // Apply upgrade bonuses
+    this.applyUpgradeBonuses();
+
     // Set up minigame event listeners
     this.setupMinigameListeners();
 
-    // Register input context
+    // Register input context (Escape/Enter only)
     this.registerInputContext();
+
+    // Register raw keydown listener for character input
+    this.registerRawKeyListener();
+
+    // Reset session tracking
+    this.accumulatedMoney = 0;
+    this.longestCodeLength = this.game.config.minigames.codeBreaker.startingCodeLength;
 
     // Emit scene entered event
     this.game.eventBus.emit(GameEvents.SCENE_ENTERED, {
@@ -153,6 +194,9 @@ class CodeBreakerScene implements Scene {
 
     // Start the game
     this.minigame.start();
+
+    // Build initial code display
+    this.rebuildCodeDisplay(this.minigame.currentCodeLength);
 
     // Emit minigame started event
     this.game.eventBus.emit(GameEvents.MINIGAME_STARTED, {
@@ -166,6 +210,9 @@ class CodeBreakerScene implements Scene {
 
   onExit(): void {
     console.log('[CodeBreakerScene] Exiting scene');
+
+    // Remove raw keydown listener
+    this.removeRawKeyListener();
 
     // Disable input context
     if (this.inputContext) {
@@ -186,7 +233,7 @@ class CodeBreakerScene implements Scene {
     // Emit scene exited event
     this.game.eventBus.emit(GameEvents.SCENE_EXITED, {
       sceneId: this.id,
-      nextSceneId: 'apartment', // Will be updated by caller
+      nextSceneId: 'apartment',
     });
   }
 
@@ -205,6 +252,9 @@ class CodeBreakerScene implements Scene {
   onDestroy(): void {
     console.log('[CodeBreakerScene] Destroying scene');
 
+    // Remove raw keydown listener
+    this.removeRawKeyListener();
+
     // Unregister input context
     if (this.inputContext) {
       this.game.inputManager.unregisterContext(this.inputContext.id);
@@ -217,14 +267,18 @@ class CodeBreakerScene implements Scene {
     }
 
     // Clear UI references
-    this.targetDigitTexts = [];
-    this.targetDigitBoxes = [];
-    this.inputDigitTexts = [];
-    this.inputDigitBoxes = [];
-    this.timerText = null;
-    this.comboText = null;
-    this.scoreText = null;
+    this.targetBoxes = [];
+    this.targetTexts = [];
+    this.inputBoxes = [];
+    this.inputTexts = [];
+    this.countdownBarBg = null;
+    this.countdownBarFill = null;
+    this.countdownTimeText = null;
+    this.codesText = null;
+    this.lengthText = null;
+    this.moneyText = null;
     this.statusText = null;
+    this.codeDisplayContainer = null;
     this.resultsOverlay = null;
 
     // Destroy container and children
@@ -232,17 +286,40 @@ class CodeBreakerScene implements Scene {
   }
 
   // ==========================================================================
+  // Upgrade Bonuses
+  // ==========================================================================
+
+  /**
+   * Read upgrade bonuses from the store and apply to the minigame.
+   */
+  private applyUpgradeBonuses(): void {
+    if (!this.minigame) { return; }
+
+    const store = this.game.store;
+    const minigameTimeBonusSec = getMinigameTimeBonus(store);
+    const perCodeTimeBonusSec = getPerCodeTimeBonus(store);
+
+    // Both are in seconds, convert to ms and combine
+    const totalBonusMs = (minigameTimeBonusSec + perCodeTimeBonusSec) * 1000;
+
+    if (totalBonusMs > 0) {
+      console.log(`[CodeBreakerScene] Applying upgrade bonus: ${totalBonusMs}ms`);
+      this.minigame.setUpgradeBonusMs(totalBonusMs);
+    }
+  }
+
+  // ==========================================================================
   // UI Creation
   // ==========================================================================
 
   /**
-   * Create all UI elements.
+   * Create all static UI elements (header, countdown bar, stats bar, instructions).
+   * The code display (target/input boxes) is created dynamically via rebuildCodeDisplay().
    */
   private createUI(): void {
     const width = this.game.config.canvas.width;
     const height = this.game.config.canvas.height;
     const centerX = width / 2;
-    const centerY = height / 2;
 
     // Background
     this.createBackground(width, height);
@@ -250,29 +327,30 @@ class CodeBreakerScene implements Scene {
     // Header
     this.createHeader(centerX);
 
-    // Sequence displays
-    const sequenceLength = this.game.config.minigames.codeBreaker.sequenceLength;
-    this.createTargetDisplay(centerX, centerY + LAYOUT.TARGET_Y_OFFSET, sequenceLength);
-    this.createInputDisplay(centerX, centerY + LAYOUT.TARGET_Y_OFFSET + LAYOUT.DIGIT_BOX_SIZE + LAYOUT.ROW_GAP, sequenceLength);
+    // Countdown bar
+    this.createCountdownBar(width);
+
+    // Code display container (filled by rebuildCodeDisplay)
+    this.codeDisplayContainer = new Container();
+    this.codeDisplayContainer.label = 'code-display';
+    this.container.addChild(this.codeDisplayContainer);
 
     // Stats bar
-    this.createStatsBar(width, centerY + LAYOUT.STATS_Y_OFFSET);
+    this.createStatsBar(width, height - LAYOUT.STATS_Y_FROM_BOTTOM);
 
     // Instructions
-    this.createInstructions(centerX, centerY + LAYOUT.INSTRUCTIONS_Y_OFFSET);
+    this.createInstructions(centerX, height - LAYOUT.INSTRUCTIONS_Y_FROM_BOTTOM);
   }
 
   /**
    * Create background and border.
    */
   private createBackground(width: number, height: number): void {
-    // Main background
     const bg = new Graphics();
     bg.rect(0, 0, width, height);
     bg.fill({ color: COLORS.BACKGROUND, alpha: 0.95 });
     this.container.addChild(bg);
 
-    // Border (separate Graphics object)
     const border = new Graphics();
     border.rect(LAYOUT.PADDING / 2, LAYOUT.PADDING / 2, width - LAYOUT.PADDING, height - LAYOUT.PADDING);
     border.stroke({ color: COLORS.TERMINAL_GREEN, width: 2 });
@@ -292,7 +370,6 @@ class CodeBreakerScene implements Scene {
     title.y = LAYOUT.PADDING;
     this.container.addChild(title);
 
-    // Divider line
     const divider = new Graphics();
     divider.moveTo(LAYOUT.PADDING, LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING);
     divider.lineTo(this.game.config.canvas.width - LAYOUT.PADDING, LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING);
@@ -301,101 +378,37 @@ class CodeBreakerScene implements Scene {
   }
 
   /**
-   * Create the target sequence display.
+   * Create the countdown bar (background + fill + time text).
    */
-  private createTargetDisplay(centerX: number, y: number, length: number): void {
-    const targetContainer = new Container();
-    targetContainer.label = 'target-display';
+  private createCountdownBar(width: number): void {
+    const barX = LAYOUT.PADDING + 10;
+    const barWidth = width - (LAYOUT.PADDING + 10) * 2;
+    const barY = LAYOUT.COUNTDOWN_BAR_Y;
+    const barHeight = LAYOUT.COUNTDOWN_BAR_HEIGHT;
 
-    // Label
-    const label = new Text({
-      text: 'TARGET:',
-      style: terminalDimStyle,
+    // Background (dark outline)
+    this.countdownBarBg = new Graphics();
+    this.countdownBarBg.rect(barX, barY, barWidth, barHeight);
+    this.countdownBarBg.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
+    this.container.addChild(this.countdownBarBg);
+
+    // Fill (will be redrawn each frame)
+    this.countdownBarFill = new Graphics();
+    this.container.addChild(this.countdownBarFill);
+
+    // Time text (above bar, right-aligned)
+    this.countdownTimeText = new Text({
+      text: '',
+      style: createTerminalStyle(COLORS.TERMINAL_GREEN, 12),
     });
-    label.anchor.set(1, 0.5);
-    label.x = centerX - (length * LAYOUT.DIGIT_SPACING) / 2 - 20;
-    label.y = y + LAYOUT.DIGIT_BOX_SIZE / 2;
-    targetContainer.addChild(label);
-
-    // Create digit boxes and texts
-    const startX = centerX - ((length - 1) * LAYOUT.DIGIT_SPACING) / 2;
-
-    for (let i = 0; i < length; i++) {
-      const x = startX + i * LAYOUT.DIGIT_SPACING;
-
-      // Box - position the Graphics object, draw at local origin
-      const box = new Graphics();
-      box.x = x;
-      box.y = y;
-      box.rect(-LAYOUT.DIGIT_BOX_SIZE / 2, 0, LAYOUT.DIGIT_BOX_SIZE, LAYOUT.DIGIT_BOX_SIZE);
-      box.stroke({ color: COLORS.TERMINAL_DIM, width: 2 });
-      targetContainer.addChild(box);
-      this.targetDigitBoxes.push(box);
-
-      // Text
-      const text = new Text({
-        text: '-',
-        style: terminalBrightStyle,
-      });
-      text.anchor.set(0.5);
-      text.x = x;
-      text.y = y + LAYOUT.DIGIT_BOX_SIZE / 2;
-      targetContainer.addChild(text);
-      this.targetDigitTexts.push(text);
-    }
-
-    this.container.addChild(targetContainer);
+    this.countdownTimeText.anchor.set(1, 1);
+    this.countdownTimeText.x = barX + barWidth;
+    this.countdownTimeText.y = barY - 2;
+    this.container.addChild(this.countdownTimeText);
   }
 
   /**
-   * Create the input sequence display.
-   */
-  private createInputDisplay(centerX: number, y: number, length: number): void {
-    const inputContainer = new Container();
-    inputContainer.label = 'input-display';
-
-    // Label
-    const label = new Text({
-      text: 'INPUT:',
-      style: terminalDimStyle,
-    });
-    label.anchor.set(1, 0.5);
-    label.x = centerX - (length * LAYOUT.DIGIT_SPACING) / 2 - 20;
-    label.y = y + LAYOUT.DIGIT_BOX_SIZE / 2;
-    inputContainer.addChild(label);
-
-    // Create digit boxes and texts
-    const startX = centerX - ((length - 1) * LAYOUT.DIGIT_SPACING) / 2;
-
-    for (let i = 0; i < length; i++) {
-      const x = startX + i * LAYOUT.DIGIT_SPACING;
-
-      // Box (will be styled dynamically) - position the Graphics object, draw at local origin
-      const box = new Graphics();
-      box.x = x;
-      box.y = y;
-      box.rect(-LAYOUT.DIGIT_BOX_SIZE / 2, 0, LAYOUT.DIGIT_BOX_SIZE, LAYOUT.DIGIT_BOX_SIZE);
-      box.stroke({ color: COLORS.TERMINAL_DIM, width: 2 });
-      inputContainer.addChild(box);
-      this.inputDigitBoxes.push(box);
-
-      // Text
-      const text = new Text({
-        text: '_',
-        style: terminalStyle,
-      });
-      text.anchor.set(0.5);
-      text.x = x;
-      text.y = y + LAYOUT.DIGIT_BOX_SIZE / 2;
-      inputContainer.addChild(text);
-      this.inputDigitTexts.push(text);
-    }
-
-    this.container.addChild(inputContainer);
-  }
-
-  /**
-   * Create the stats bar (timer, combo, score).
+   * Create the stats bar (codes cracked, code length, money).
    */
   private createStatsBar(width: number, y: number): void {
     const statsContainer = new Container();
@@ -403,62 +416,62 @@ class CodeBreakerScene implements Scene {
 
     const thirdWidth = width / 3;
 
-    // Timer (left)
-    const timerLabel = new Text({
-      text: 'TIME:',
+    // Codes cracked (left)
+    const codesLabel = new Text({
+      text: 'CODES:',
       style: terminalDimStyle,
     });
-    timerLabel.anchor.set(0, 0.5);
-    timerLabel.x = LAYOUT.PADDING + 20;
-    timerLabel.y = y;
-    statsContainer.addChild(timerLabel);
+    codesLabel.anchor.set(0, 0.5);
+    codesLabel.x = LAYOUT.PADDING + 20;
+    codesLabel.y = y;
+    statsContainer.addChild(codesLabel);
 
-    this.timerText = new Text({
-      text: '01:00',
+    this.codesText = new Text({
+      text: '0',
       style: hudStyle,
     });
-    this.timerText.anchor.set(0, 0.5);
-    this.timerText.x = timerLabel.x + 60;
-    this.timerText.y = y;
-    statsContainer.addChild(this.timerText);
+    this.codesText.anchor.set(0, 0.5);
+    this.codesText.x = codesLabel.x + 70;
+    this.codesText.y = y;
+    statsContainer.addChild(this.codesText);
 
-    // Combo (center)
-    const comboLabel = new Text({
-      text: 'COMBO:',
+    // Code length (center)
+    const lengthLabel = new Text({
+      text: 'LENGTH:',
       style: terminalDimStyle,
     });
-    comboLabel.anchor.set(0.5, 0.5);
-    comboLabel.x = thirdWidth + 20;
-    comboLabel.y = y;
-    statsContainer.addChild(comboLabel);
+    lengthLabel.anchor.set(0.5, 0.5);
+    lengthLabel.x = thirdWidth + 20;
+    lengthLabel.y = y;
+    statsContainer.addChild(lengthLabel);
 
-    this.comboText = new Text({
-      text: 'x1',
-      style: comboStyle,
+    this.lengthText = new Text({
+      text: '5',
+      style: hudStyle,
     });
-    this.comboText.anchor.set(0, 0.5);
-    this.comboText.x = comboLabel.x + 50;
-    this.comboText.y = y;
-    statsContainer.addChild(this.comboText);
+    this.lengthText.anchor.set(0, 0.5);
+    this.lengthText.x = lengthLabel.x + 55;
+    this.lengthText.y = y;
+    statsContainer.addChild(this.lengthText);
 
-    // Score (right)
-    const scoreLabel = new Text({
-      text: 'SCORE:',
+    // Money (right)
+    const moneyLabel = new Text({
+      text: 'MONEY:',
       style: terminalDimStyle,
     });
-    scoreLabel.anchor.set(0, 0.5);
-    scoreLabel.x = 2 * thirdWidth + 20;
-    scoreLabel.y = y;
-    statsContainer.addChild(scoreLabel);
+    moneyLabel.anchor.set(0, 0.5);
+    moneyLabel.x = 2 * thirdWidth + 20;
+    moneyLabel.y = y;
+    statsContainer.addChild(moneyLabel);
 
-    this.scoreText = new Text({
-      text: '0',
+    this.moneyText = new Text({
+      text: '$0',
       style: scoreStyle,
     });
-    this.scoreText.anchor.set(0, 0.5);
-    this.scoreText.x = scoreLabel.x + 70;
-    this.scoreText.y = y;
-    statsContainer.addChild(this.scoreText);
+    this.moneyText.anchor.set(0, 0.5);
+    this.moneyText.x = moneyLabel.x + 75;
+    this.moneyText.y = y;
+    statsContainer.addChild(this.moneyText);
 
     this.container.addChild(statsContainer);
   }
@@ -468,13 +481,124 @@ class CodeBreakerScene implements Scene {
    */
   private createInstructions(centerX: number, y: number): void {
     this.statusText = new Text({
-      text: 'Type digits 0-9 to match the sequence | [ESC] Exit',
+      text: 'Type the code before time runs out! Wrong input = game over | [ESC] Exit',
       style: terminalDimStyle,
     });
     this.statusText.anchor.set(0.5, 0);
     this.statusText.x = centerX;
     this.statusText.y = y;
     this.container.addChild(this.statusText);
+  }
+
+  // ==========================================================================
+  // Dynamic Code Display
+  // ==========================================================================
+
+  /**
+   * Rebuild the target and input box displays for a given code length.
+   * Destroys existing boxes and creates new ones scaled to fit.
+   */
+  private rebuildCodeDisplay(length: number): void {
+    if (!this.codeDisplayContainer) { return; }
+
+    // Destroy existing children
+    this.codeDisplayContainer.removeChildren();
+    this.targetBoxes = [];
+    this.targetTexts = [];
+    this.inputBoxes = [];
+    this.inputTexts = [];
+
+    const width = this.game.config.canvas.width;
+    const centerX = width / 2;
+    const availableWidth = width - LAYOUT.PADDING * 2 - 40; // extra margin
+
+    // Calculate box size to fit within available width
+    const idealSpacing = LAYOUT.MAX_BOX_SIZE * LAYOUT.BOX_SPACING_RATIO;
+    const neededWidth = length * idealSpacing;
+    let boxSize: number = LAYOUT.MAX_BOX_SIZE;
+    let spacing: number = idealSpacing;
+
+    if (neededWidth > availableWidth) {
+      // Scale down to fit
+      spacing = availableWidth / length;
+      boxSize = Math.max(LAYOUT.MIN_BOX_SIZE, Math.floor(spacing / LAYOUT.BOX_SPACING_RATIO));
+      spacing = boxSize * LAYOUT.BOX_SPACING_RATIO;
+    }
+
+    const fontSize = Math.max(10, Math.floor(boxSize * 0.5));
+    const startX = centerX - ((length - 1) * spacing) / 2;
+    const targetY = LAYOUT.CODE_DISPLAY_Y;
+    const inputY = targetY + boxSize + LAYOUT.ROW_GAP;
+
+    // Target label
+    const targetLabel = new Text({
+      text: 'TARGET:',
+      style: terminalDimStyle,
+    });
+    targetLabel.anchor.set(1, 0.5);
+    targetLabel.x = startX - spacing * 0.4;
+    targetLabel.y = targetY + boxSize / 2;
+    // Only show label if there is room
+    if (startX - spacing * 0.4 > LAYOUT.PADDING + 80) {
+      this.codeDisplayContainer.addChild(targetLabel);
+    }
+
+    // Input label
+    const inputLabel = new Text({
+      text: 'INPUT:',
+      style: terminalDimStyle,
+    });
+    inputLabel.anchor.set(1, 0.5);
+    inputLabel.x = startX - spacing * 0.4;
+    inputLabel.y = inputY + boxSize / 2;
+    if (startX - spacing * 0.4 > LAYOUT.PADDING + 80) {
+      this.codeDisplayContainer.addChild(inputLabel);
+    }
+
+    // Create boxes for target and input rows
+    for (let i = 0; i < length; i++) {
+      const x = startX + i * spacing;
+
+      // Target box
+      const tBox = new Graphics();
+      tBox.x = x;
+      tBox.y = targetY;
+      tBox.rect(-boxSize / 2, 0, boxSize, boxSize);
+      tBox.stroke({ color: COLORS.TERMINAL_DIM, width: 2 });
+      this.codeDisplayContainer.addChild(tBox);
+      this.targetBoxes.push(tBox);
+
+      // Target text
+      const tText = new Text({
+        text: '-',
+        style: createTerminalStyle(COLORS.TERMINAL_BRIGHT, fontSize),
+      });
+      tText.anchor.set(0.5);
+      tText.x = x;
+      tText.y = targetY + boxSize / 2;
+      this.codeDisplayContainer.addChild(tText);
+      this.targetTexts.push(tText);
+
+      // Input box
+      const iBox = new Graphics();
+      iBox.x = x;
+      iBox.y = inputY;
+      iBox.rect(-boxSize / 2, 0, boxSize, boxSize);
+      iBox.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
+      this.codeDisplayContainer.addChild(iBox);
+      this.inputBoxes.push(iBox);
+
+      // Input text
+      const iText = new Text({
+        text: '_',
+        style: createTerminalStyle(COLORS.TERMINAL_GREEN, fontSize),
+      });
+      iText.anchor.set(0.5);
+      iText.x = x;
+      iText.y = inputY + boxSize / 2;
+      this.codeDisplayContainer.addChild(iText);
+      this.inputTexts.push(iText);
+    }
   }
 
   // ==========================================================================
@@ -485,10 +609,11 @@ class CodeBreakerScene implements Scene {
    * Update all display elements based on game state.
    */
   private updateDisplay(): void {
-    if (!this.minigame) {return;}
+    if (!this.minigame) { return; }
 
     this.updateTargetDisplay();
     this.updateInputDisplay();
+    this.updateCountdownBar();
     this.updateStats();
   }
 
@@ -496,11 +621,11 @@ class CodeBreakerScene implements Scene {
    * Update the target sequence display.
    */
   private updateTargetDisplay(): void {
-    if (!this.minigame) {return;}
+    if (!this.minigame) { return; }
 
     const target = this.minigame.targetSequence;
-    for (let i = 0; i < target.length; i++) {
-      const text = this.targetDigitTexts[i];
+    for (let i = 0; i < target.length && i < this.targetTexts.length; i++) {
+      const text = this.targetTexts[i];
       if (text) {
         text.text = String(target[i] ?? '-');
       }
@@ -511,41 +636,52 @@ class CodeBreakerScene implements Scene {
    * Update the input sequence display.
    */
   private updateInputDisplay(): void {
-    if (!this.minigame) {return;}
+    if (!this.minigame) { return; }
 
     const input = this.minigame.inputSequence;
     const currentPos = this.minigame.currentPosition;
-    const length = this.minigame.sequenceLength;
+    const length = this.minigame.currentCodeLength;
 
-    for (let i = 0; i < length; i++) {
-      const text = this.inputDigitTexts[i];
-      const box = this.inputDigitBoxes[i];
+    // Calculate current box size for redraw
+    const width = this.game.config.canvas.width;
+    const availableWidth = width - LAYOUT.PADDING * 2 - 40;
+    const idealSpacing = LAYOUT.MAX_BOX_SIZE * LAYOUT.BOX_SPACING_RATIO;
+    const neededWidth = length * idealSpacing;
+    let boxSize: number = LAYOUT.MAX_BOX_SIZE;
+    if (neededWidth > availableWidth) {
+      const spacing = availableWidth / length;
+      boxSize = Math.max(LAYOUT.MIN_BOX_SIZE, Math.floor(spacing / LAYOUT.BOX_SPACING_RATIO));
+    }
 
-      if (!text || !box) {continue;}
+    for (let i = 0; i < length && i < this.inputTexts.length; i++) {
+      const text = this.inputTexts[i];
+      const box = this.inputBoxes[i];
+
+      if (!text || !box) { continue; }
 
       if (i < input.length) {
-        // Completed position - show entered digit
+        // Completed position - show entered character
         text.text = String(input[i]);
-        text.style = terminalBrightStyle;
-        this.updateBoxStyle(box, 'correct');
+        text.style = createTerminalStyle(COLORS.TERMINAL_BRIGHT, Math.max(10, Math.floor(boxSize * 0.5)));
+        this.updateBoxStyle(box, 'correct', boxSize);
       } else if (i === currentPos) {
         // Current position - show cursor
         text.text = '_';
-        text.style = terminalStyle;
-        this.updateBoxStyle(box, 'active');
+        text.style = createTerminalStyle(COLORS.TERMINAL_GREEN, Math.max(10, Math.floor(boxSize * 0.5)));
+        this.updateBoxStyle(box, 'active', boxSize);
       } else {
         // Future position
         text.text = '_';
-        text.style = terminalDimStyle;
-        this.updateBoxStyle(box, 'inactive');
+        text.style = createTerminalStyle(COLORS.TERMINAL_DIM, Math.max(10, Math.floor(boxSize * 0.5)));
+        this.updateBoxStyle(box, 'inactive', boxSize);
       }
     }
   }
 
   /**
-   * Update a digit box's visual style.
+   * Update a character box's visual style.
    */
-  private updateBoxStyle(box: Graphics, state: 'inactive' | 'active' | 'correct' | 'wrong'): void {
+  private updateBoxStyle(box: Graphics, state: 'inactive' | 'active' | 'correct' | 'wrong', boxSize: number): void {
     box.clear();
 
     let color: number;
@@ -569,43 +705,79 @@ class CodeBreakerScene implements Scene {
         strokeWidth = 1;
     }
 
-    box.rect(-LAYOUT.DIGIT_BOX_SIZE / 2, 0, LAYOUT.DIGIT_BOX_SIZE, LAYOUT.DIGIT_BOX_SIZE);
+    box.rect(-boxSize / 2, 0, boxSize, boxSize);
     box.stroke({ color, width: strokeWidth });
+  }
+
+  /**
+   * Update the countdown bar based on per-code timer state.
+   */
+  private updateCountdownBar(): void {
+    if (!this.minigame || !this.countdownBarFill || !this.countdownTimeText) { return; }
+
+    const width = this.game.config.canvas.width;
+    const barX = LAYOUT.PADDING + 10;
+    const barWidth = width - (LAYOUT.PADDING + 10) * 2;
+    const barY = LAYOUT.COUNTDOWN_BAR_Y;
+    const barHeight = LAYOUT.COUNTDOWN_BAR_HEIGHT;
+
+    const isPreview = this.minigame.isInPreview;
+    const effectiveTimeLimit = this.minigame.effectiveTimeLimitMs;
+    const timeRemaining = this.minigame.perCodeTimeRemainingMs;
+
+    // During preview, show full bar in preview color
+    let fraction: number;
+    let barColor: number;
+
+    if (isPreview) {
+      fraction = 1.0;
+      barColor = BAR_COLORS.PREVIEW;
+      const previewSec = (this.minigame.previewRemainingMs / 1000).toFixed(1);
+      this.countdownTimeText.text = `PREVIEW ${previewSec}s`;
+      this.countdownTimeText.style = createTerminalStyle(BAR_COLORS.PREVIEW, 12);
+    } else {
+      fraction = effectiveTimeLimit > 0 ? timeRemaining / effectiveTimeLimit : 0;
+      fraction = Math.max(0, Math.min(1, fraction));
+
+      // Color transitions: green (>50%) -> yellow (25-50%) -> red (<25%)
+      if (fraction > 0.5) {
+        barColor = BAR_COLORS.GREEN;
+      } else if (fraction > 0.25) {
+        barColor = BAR_COLORS.YELLOW;
+      } else {
+        barColor = BAR_COLORS.RED;
+      }
+
+      const timeSec = (timeRemaining / 1000).toFixed(1);
+      this.countdownTimeText.text = `${timeSec}s`;
+      this.countdownTimeText.style = createTerminalStyle(barColor, 12);
+    }
+
+    // Redraw fill bar
+    this.countdownBarFill.clear();
+    const fillWidth = barWidth * fraction;
+    if (fillWidth > 0) {
+      this.countdownBarFill.rect(barX, barY, fillWidth, barHeight);
+      this.countdownBarFill.fill({ color: barColor, alpha: 0.8 });
+    }
   }
 
   /**
    * Update the stats display.
    */
   private updateStats(): void {
-    if (!this.minigame) {return;}
+    if (!this.minigame) { return; }
 
-    // Timer
-    if (this.timerText) {
-      this.timerText.text = formatTimeMMSS(this.minigame.timeRemainingMs);
-
-      // Flash red when low on time
-      if (this.minigame.timeRemainingMs <= 10000) {
-        this.timerText.style = createTerminalStyle(COLORS.TERMINAL_RED, 20);
-      } else {
-        this.timerText.style = hudStyle;
-      }
+    if (this.codesText) {
+      this.codesText.text = String(this.minigame.codesCracked);
     }
 
-    // Combo
-    if (this.comboText) {
-      this.comboText.text = formatCombo(this.minigame.combo);
-
-      // Highlight high combos
-      if (this.minigame.combo >= 5) {
-        this.comboText.style = createTerminalStyle(COLORS.TERMINAL_YELLOW, 20, true);
-      } else {
-        this.comboText.style = comboStyle;
-      }
+    if (this.lengthText) {
+      this.lengthText.text = String(this.minigame.currentCodeLength);
     }
 
-    // Score
-    if (this.scoreText) {
-      this.scoreText.text = String(this.minigame.score);
+    if (this.moneyText) {
+      this.moneyText.text = `$${this.accumulatedMoney}`;
     }
   }
 
@@ -617,7 +789,7 @@ class CodeBreakerScene implements Scene {
    * Set up listeners for minigame events.
    */
   private setupMinigameListeners(): void {
-    if (!this.minigame) {return;}
+    if (!this.minigame) { return; }
 
     // Handle game end
     const unsubEnd = this.minigame.on('end', () => {
@@ -625,9 +797,23 @@ class CodeBreakerScene implements Scene {
     });
     this.unsubscribers.push(unsubEnd);
 
-    // Handle sequence complete (for visual feedback)
-    const unsubSequence = this.minigame.on('sequence-complete' as 'end', () => {
-      // Flash effect could go here
+    // Handle sequence complete (rebuild display for new code length)
+    const unsubSequence = this.minigame.on('sequence-complete' as 'end', (payload) => {
+      if (!this.minigame) { return; }
+
+      // Update accumulated money from event data
+      const data = payload.data as { moneyEarned?: number } | undefined;
+      if (data?.moneyEarned !== undefined) {
+        this.accumulatedMoney = data.moneyEarned;
+      }
+
+      // Track longest code
+      if (this.minigame.currentCodeLength > this.longestCodeLength) {
+        this.longestCodeLength = this.minigame.currentCodeLength;
+      }
+
+      // Rebuild display for new code length
+      this.rebuildCodeDisplay(this.minigame.currentCodeLength);
       this.updateDisplay();
     });
     this.unsubscribers.push(unsubSequence);
@@ -637,13 +823,14 @@ class CodeBreakerScene implements Scene {
    * Handle game completion.
    */
   private handleGameEnd(): void {
-    if (!this.minigame) {return;}
+    if (!this.minigame) { return; }
 
     this.showingResults = true;
 
     // Get final stats
     const stats = this.minigame.getFinalStats();
     const moneyReward = this.minigame.calculateMoneyReward();
+    const failReason = this.minigame.failReason;
 
     // Record score and award resources
     const state = this.game.store.getState();
@@ -663,7 +850,7 @@ class CodeBreakerScene implements Scene {
     });
 
     // Show results overlay
-    this.showResultsOverlay(stats, moneyReward);
+    this.showResultsOverlay(failReason, moneyReward);
   }
 
   /**
@@ -671,10 +858,10 @@ class CodeBreakerScene implements Scene {
    */
   private isNewTopScore(score: number): boolean {
     const minigameState = this.game.store.getState().minigames['code-breaker'];
-    if (!minigameState) {return true;}
+    if (!minigameState) { return true; }
 
     const topScores = minigameState.topScores;
-    if (topScores.length < 5) {return true;}
+    if (topScores.length < 5) { return true; }
 
     const lowestTop = Number(topScores[topScores.length - 1] ?? 0);
     return score > lowestTop;
@@ -683,10 +870,7 @@ class CodeBreakerScene implements Scene {
   /**
    * Show the results overlay.
    */
-  private showResultsOverlay(
-    stats: { score: number; maxCombo: number; durationMs: number; successCount: number; failCount: number },
-    moneyReward: string
-  ): void {
+  private showResultsOverlay(failReason: FailReason, moneyReward: string): void {
     const width = this.game.config.canvas.width;
     const height = this.game.config.canvas.height;
 
@@ -700,8 +884,8 @@ class CodeBreakerScene implements Scene {
     this.resultsOverlay.addChild(bg);
 
     // Results box
-    const boxWidth = 400;
-    const boxHeight = 320;
+    const boxWidth = 420;
+    const boxHeight = 360;
     const boxX = (width - boxWidth) / 2;
     const boxY = (height - boxHeight) / 2;
 
@@ -711,71 +895,72 @@ class CodeBreakerScene implements Scene {
     boxFill.fill({ color: COLORS.BACKGROUND });
     this.resultsOverlay.addChild(boxFill);
 
-    // Box border (separate Graphics to avoid artifacts)
+    // Box border
     const boxBorder = new Graphics();
     boxBorder.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
     boxBorder.stroke({ color: COLORS.TERMINAL_GREEN, width: 2 });
     this.resultsOverlay.addChild(boxBorder);
 
-    // Title
+    // Failure reason title
+    let failText = 'GAME OVER';
+    let failColor: number = COLORS.TERMINAL_GREEN;
+    if (failReason === 'wrong-input') {
+      failText = 'WRONG INPUT';
+      failColor = COLORS.TERMINAL_RED;
+    } else if (failReason === 'timeout') {
+      failText = "TIME'S UP";
+      failColor = COLORS.TERMINAL_YELLOW;
+    }
+
     const title = new Text({
-      text: 'GAME OVER',
-      style: titleStyle,
+      text: failText,
+      style: createTerminalStyle(failColor, 32, true),
     });
     title.anchor.set(0.5, 0);
     title.x = width / 2;
-    title.y = boxY + 20;
+    title.y = boxY + 25;
     this.resultsOverlay.addChild(title);
 
-    // Final Score
-    const scoreLabel = new Text({
-      text: 'FINAL SCORE',
-      style: terminalDimStyle,
-    });
-    scoreLabel.anchor.set(0.5, 0);
-    scoreLabel.x = width / 2;
-    scoreLabel.y = boxY + 70;
-    this.resultsOverlay.addChild(scoreLabel);
-
-    const finalScore = new Text({
-      text: String(stats.score),
-      style: scoreStyle,
-    });
-    finalScore.anchor.set(0.5, 0);
-    finalScore.x = width / 2;
-    finalScore.y = boxY + 95;
-    this.resultsOverlay.addChild(finalScore);
+    // Divider
+    const divider = new Graphics();
+    divider.moveTo(boxX + 20, boxY + 70);
+    divider.lineTo(boxX + boxWidth - 20, boxY + 70);
+    divider.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
+    this.resultsOverlay.addChild(divider);
 
     // Stats
-    const statsY = boxY + 150;
+    const statsStartY = boxY + 90;
+    const lineHeight = 35;
 
-    const maxComboText = new Text({
-      text: `Max Combo: ${formatCombo(stats.maxCombo)}`,
-      style: terminalStyle,
-    });
-    maxComboText.anchor.set(0.5, 0);
-    maxComboText.x = width / 2;
-    maxComboText.y = statsY;
-    this.resultsOverlay.addChild(maxComboText);
-
-    const sequencesText = new Text({
-      text: `Sequences: ${stats.successCount}`,
-      style: terminalStyle,
-    });
-    sequencesText.anchor.set(0.5, 0);
-    sequencesText.x = width / 2;
-    sequencesText.y = statsY + 25;
-    this.resultsOverlay.addChild(sequencesText);
-
-    // Money earned
-    const moneyText = new Text({
-      text: `Money Earned: $${moneyReward}`,
+    // Codes cracked
+    const codesCrackedText = new Text({
+      text: `CODES CRACKED: ${this.minigame?.codesCracked ?? 0}`,
       style: terminalBrightStyle,
     });
-    moneyText.anchor.set(0.5, 0);
-    moneyText.x = width / 2;
-    moneyText.y = statsY + 60;
-    this.resultsOverlay.addChild(moneyText);
+    codesCrackedText.anchor.set(0.5, 0);
+    codesCrackedText.x = width / 2;
+    codesCrackedText.y = statsStartY;
+    this.resultsOverlay.addChild(codesCrackedText);
+
+    // Longest code
+    const longestText = new Text({
+      text: `LONGEST CODE: ${this.longestCodeLength} characters`,
+      style: terminalStyle,
+    });
+    longestText.anchor.set(0.5, 0);
+    longestText.x = width / 2;
+    longestText.y = statsStartY + lineHeight;
+    this.resultsOverlay.addChild(longestText);
+
+    // Money earned
+    const moneyEarnedText = new Text({
+      text: `MONEY EARNED: $${moneyReward}`,
+      style: scoreStyle,
+    });
+    moneyEarnedText.anchor.set(0.5, 0);
+    moneyEarnedText.x = width / 2;
+    moneyEarnedText.y = statsStartY + lineHeight * 2;
+    this.resultsOverlay.addChild(moneyEarnedText);
 
     // Instructions
     const instructions = new Text({
@@ -784,7 +969,7 @@ class CodeBreakerScene implements Scene {
     });
     instructions.anchor.set(0.5, 0);
     instructions.x = width / 2;
-    instructions.y = boxY + boxHeight - 40;
+    instructions.y = boxY + boxHeight - 45;
     this.resultsOverlay.addChild(instructions);
 
     this.container.addChild(this.resultsOverlay);
@@ -795,22 +980,54 @@ class CodeBreakerScene implements Scene {
   // ==========================================================================
 
   /**
-   * Register the input context for this scene.
+   * Register a raw keydown event listener for character input.
+   * This bypasses the InputManager because it uses event.code (not event.key),
+   * which cannot handle Shift+digit for special characters (!@#$%^&*).
+   */
+  private registerRawKeyListener(): void {
+    const characterSet = this.game.config.minigames.codeBreaker.characterSet;
+
+    this.rawKeydownHandler = (event: KeyboardEvent): void => {
+      // Do not process if showing results
+      if (this.showingResults) { return; }
+      if (!this.minigame?.isPlaying) { return; }
+
+      // Convert event.key to uppercase
+      const key = event.key.toUpperCase();
+
+      // Check if the key is a valid character in the character set
+      if (key.length === 1 && characterSet.includes(key)) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const result = this.minigame.handleCharInput(key);
+
+        // Update display immediately on input
+        if (result !== null) {
+          this.updateDisplay();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', this.rawKeydownHandler);
+  }
+
+  /**
+   * Remove the raw keydown event listener.
+   */
+  private removeRawKeyListener(): void {
+    if (this.rawKeydownHandler) {
+      window.removeEventListener('keydown', this.rawKeydownHandler);
+      this.rawKeydownHandler = null;
+    }
+  }
+
+  /**
+   * Register the input context for Escape and Enter keys only.
+   * Character input is handled by the raw keydown listener.
    */
   private registerInputContext(): void {
-    // Build bindings map
     const bindings = new Map<string, { onPress?: () => void; onRelease?: () => void }>();
-
-    // Digit keys (0-9)
-    for (let i = 0; i <= 9; i++) {
-      const digit = i;
-      bindings.set(`Digit${digit}`, {
-        onPress: () => this.handleDigitPress(digit),
-      });
-      bindings.set(`Numpad${digit}`, {
-        onPress: () => this.handleDigitPress(digit),
-      });
-    }
 
     // Escape to exit
     bindings.set('Escape', {
@@ -835,35 +1052,10 @@ class CodeBreakerScene implements Scene {
   }
 
   /**
-   * Handle digit key press.
-   */
-  private handleDigitPress(digit: number): void {
-    if (this.showingResults) {
-      return;
-    }
-
-    if (!this.minigame?.isPlaying) {
-      return;
-    }
-
-    const feedback = this.minigame.handleDigitInput(digit);
-
-    // Visual feedback based on result
-    if (feedback === 'correct') {
-      // Flash success (could add animation here)
-    } else if (feedback === 'wrong' || feedback === 'wrong-position') {
-      // Flash error (could add animation here)
-    }
-
-    this.updateDisplay();
-  }
-
-  /**
    * Handle escape key.
    */
   private handleEscape(): void {
     if (this.showingResults) {
-      // Exit to apartment
       void this.game.switchScene('apartment');
       return;
     }
@@ -881,7 +1073,6 @@ class CodeBreakerScene implements Scene {
    */
   private handleEnter(): void {
     if (this.showingResults) {
-      // Return to interstitial menu
       const interstitialSceneId = `minigame-interstitial-${this.id}`;
       this.game.sceneManager.register(
         interstitialSceneId,
