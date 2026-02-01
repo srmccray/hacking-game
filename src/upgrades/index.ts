@@ -31,6 +31,7 @@ export {
   getUpgradeEffectFormatted,
   getAutoGenerationMultiplier,
   getComboMultiplierBonus,
+  getPerCodeTimeBonus,
   getMinigameTimeBonus,
   // Purchase
   purchaseUpgrade,

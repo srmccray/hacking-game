@@ -1,10 +1,31 @@
 /**
- * Tests for CodeBreakerGame
+ * Tests for CodeBreakerGame (redesigned per-code countdown version)
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { CodeBreakerGame, createCodeBreakerGame } from './CodeBreakerGame';
 import { DEFAULT_CONFIG } from '../../game/GameConfig';
+import type { CodeBreakerConfig } from '../../game/GameConfig';
+
+const defaultConfig = DEFAULT_CONFIG.minigames.codeBreaker;
+
+/** Helper: complete the current code by entering all correct characters */
+function completeCurrentCode(game: CodeBreakerGame): void {
+  const seq = game.targetSequence;
+  for (let i = game.currentPosition; i < seq.length; i++) {
+    game.handleCharInput(seq[i]!);
+  }
+}
+
+/** Helper: find a character NOT in the target sequence */
+function findWrongChar(game: CodeBreakerGame): string {
+  const charset = defaultConfig.characterSet;
+  const target = game.targetSequence[game.currentPosition];
+  for (const ch of charset) {
+    if (ch !== target) return ch;
+  }
+  throw new Error('Could not find wrong character');
+}
 
 describe('CodeBreakerGame', () => {
   let game: CodeBreakerGame;
@@ -26,43 +47,51 @@ describe('CodeBreakerGame', () => {
       expect(CodeBreakerGame.MINIGAME_ID).toBe('code-breaker');
     });
 
-    it('should use default config', () => {
-      expect(game.sequenceLength).toBe(DEFAULT_CONFIG.minigames.codeBreaker.sequenceLength);
-      expect(game.timeLimitMs).toBe(DEFAULT_CONFIG.minigames.codeBreaker.timeLimitMs);
-    });
-
-    it('should accept custom config', () => {
-      const customConfig = {
-        ...DEFAULT_CONFIG.minigames.codeBreaker,
-        sequenceLength: 3,
-        timeLimitMs: 30000,
-      };
-      const customGame = new CodeBreakerGame(customConfig);
-
-      expect(customGame.sequenceLength).toBe(3);
-      expect(customGame.timeLimitMs).toBe(30000);
-
-      customGame.destroy();
-    });
-
     it('should start in idle phase', () => {
       expect(game.phase).toBe('idle');
       expect(game.targetSequence).toEqual([]);
       expect(game.inputSequence).toEqual([]);
     });
+
+    it('should accept custom config', () => {
+      const customConfig: CodeBreakerConfig = {
+        ...defaultConfig,
+        startingCodeLength: 3,
+        perCodeTimeLimitMs: 3000,
+      };
+      const customGame = new CodeBreakerGame(customConfig);
+      customGame.start();
+
+      expect(customGame.currentCodeLength).toBe(3);
+      expect(customGame.targetSequence).toHaveLength(3);
+
+      customGame.destroy();
+    });
   });
 
   describe('game start', () => {
-    it('should generate a sequence on start', () => {
+    it('should generate a sequence of startingCodeLength on start', () => {
       game.start();
 
-      expect(game.targetSequence).toHaveLength(game.sequenceLength);
-      expect(game.targetSequence.every((d) => d >= 0 && d <= 9)).toBe(true);
+      expect(game.targetSequence).toHaveLength(defaultConfig.startingCodeLength);
+      expect(game.currentCodeLength).toBe(defaultConfig.startingCodeLength);
+    });
+
+    it('should generate characters from the character set', () => {
+      game.start();
+
+      for (const char of game.targetSequence) {
+        expect(defaultConfig.characterSet).toContain(char);
+      }
+    });
+
+    it('should have 44 characters in the default character set', () => {
+      expect(defaultConfig.characterSet.length).toBe(44);
     });
 
     it('should reset input state on start', () => {
       game.start();
-      game.handleDigitInput(game.targetSequence[0] ?? 0);
+      game.handleCharInput(game.targetSequence[0]!);
       game.end();
 
       game.start();
@@ -71,329 +100,382 @@ describe('CodeBreakerGame', () => {
       expect(game.currentPosition).toBe(0);
     });
 
-    it('should reset sequences completed count', () => {
+    it('should reset codes cracked count on start', () => {
       game.start();
-      // Complete a full sequence
-      for (let i = 0; i < game.sequenceLength; i++) {
-        const target = game.getTargetDigit(i);
-        if (target !== undefined) {
-          game.handleDigitInput(target);
-        }
-      }
-      expect(game.sequencesCompleted).toBe(1);
+      completeCurrentCode(game);
+      expect(game.codesCracked).toBe(1);
 
       game.end();
       game.start();
 
-      expect(game.sequencesCompleted).toBe(0);
+      expect(game.codesCracked).toBe(0);
+    });
+
+    it('should bypass base class timer (timeLimitMs = 0)', () => {
+      game.start();
+
+      expect(game.timeLimitMs).toBe(0);
+    });
+
+    it('should initialize per-code timer', () => {
+      game.start();
+
+      expect(game.perCodeTimeRemainingMs).toBe(defaultConfig.perCodeTimeLimitMs);
+    });
+
+    it('should initialize preview timer', () => {
+      game.start();
+
+      expect(game.previewRemainingMs).toBe(defaultConfig.previewDurationMs);
+      expect(game.isInPreview).toBe(true);
+    });
+
+    it('should reset failReason on start', () => {
+      game.start();
+      game.handleCharInput(findWrongChar(game));
+      expect(game.failReason).toBe('wrong-input');
+
+      game.start();
+      expect(game.failReason).toBeNull();
     });
   });
 
-  describe('digit input', () => {
+  describe('character input', () => {
     beforeEach(() => {
       game.start();
     });
 
-    it('should accept correct digit and advance position', () => {
-      const targetDigit = game.getTargetDigit(0);
-      if (targetDigit === undefined) {return;}
+    it('should accept correct character and advance position', () => {
+      const targetChar = game.targetSequence[0]!;
 
-      const feedback = game.handleDigitInput(targetDigit);
+      const result = game.handleCharInput(targetChar);
 
-      expect(feedback).toBe('correct');
-      expect(game.inputSequence).toContain(targetDigit);
+      expect(result).toBe(true);
+      expect(game.inputSequence[0]).toBe(targetChar);
       expect(game.currentPosition).toBe(1);
     });
 
-    it('should reject wrong digit and not advance', () => {
-      const targetDigit = game.getTargetDigit(0);
-      if (targetDigit === undefined) {return;}
-      const wrongDigit = (targetDigit + 1) % 10;
+    it('should end game on wrong character', () => {
+      const wrongChar = findWrongChar(game);
 
-      // Ensure wrong digit is not in remaining sequence
-      const feedback = game.handleDigitInput(wrongDigit);
+      const result = game.handleCharInput(wrongChar);
 
-      expect(feedback === 'wrong' || feedback === 'wrong-position').toBe(true);
-      expect(game.inputSequence).not.toContain(wrongDigit);
-      expect(game.currentPosition).toBe(0);
-    });
-
-    it('should identify wrong-position feedback when digit exists in remaining sequence', () => {
-      // Create a game with known sequence for predictable testing
-      const customGame = new CodeBreakerGame({
-        ...DEFAULT_CONFIG.minigames.codeBreaker,
-        sequenceLength: 3,
-      });
-      customGame.start();
-
-      // Get the sequence
-      const seq = [...customGame.targetSequence];
-
-      // If sequence has unique digits, try to find one for wrong-position test
-      const firstDigit = seq[0];
-      const secondDigit = seq[1];
-
-      if (firstDigit !== undefined && secondDigit !== undefined && firstDigit !== secondDigit) {
-        // Try entering second digit at first position
-        const feedback = customGame.handleDigitInput(secondDigit);
-
-        // Should be wrong-position since it exists later in sequence
-        expect(feedback).toBe('wrong-position');
-      }
-
-      customGame.destroy();
-    });
-
-    it('should increment combo on correct input', () => {
-      const targetDigit = game.getTargetDigit(0);
-      if (targetDigit === undefined) {return;}
-
-      game.handleDigitInput(targetDigit);
-
-      expect(game.combo).toBeGreaterThan(1);
-    });
-
-    it('should reset combo on wrong input', () => {
-      // First get a correct answer to build combo
-      const targetDigit = game.getTargetDigit(0);
-      if (targetDigit === undefined) {
-        return;
-      }
-
-      game.handleDigitInput(targetDigit);
-      expect(game.combo).toBeGreaterThan(1);
-
-      // Now enter wrong digit
-      const currentTarget = game.getTargetDigit(game.currentPosition);
-      if (currentTarget === undefined) {
-        return;
-      }
-      const wrongDigit = (currentTarget + 5) % 10;
-
-      game.handleDigitInput(wrongDigit);
-
-      expect(game.combo).toBe(1);
-      expect(game.failCount).toBeGreaterThan(0);
-    });
-
-    it('should add score on correct input', () => {
-      const targetDigit = game.getTargetDigit(0);
-      if (targetDigit === undefined) {return;}
-
-      game.handleDigitInput(targetDigit);
-
-      expect(game.score).toBeGreaterThan(0);
+      expect(result).toBe(false);
+      expect(game.phase).toBe('ended');
+      expect(game.failReason).toBe('wrong-input');
     });
 
     it('should return null when not playing', () => {
       game.end();
 
-      const feedback = game.handleDigitInput(5);
+      const result = game.handleCharInput('A');
 
-      expect(feedback).toBeNull();
+      expect(result).toBeNull();
     });
 
-    it('should handle invalid digit gracefully', () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    it('should return null for characters not in character set', () => {
+      // Lowercase is not in the character set
+      const result = game.handleCharInput('a');
 
-      expect(game.handleDigitInput(-1)).toBeNull();
-      expect(game.handleDigitInput(10)).toBeNull();
-      expect(game.handleDigitInput(1.5)).toBeNull();
+      expect(result).toBeNull();
+    });
 
-      warnSpy.mockRestore();
+    it('should return null for empty string', () => {
+      const result = game.handleCharInput('');
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null for multi-character string', () => {
+      const result = game.handleCharInput('AB');
+
+      expect(result).toBeNull();
+    });
+
+    it('should accept input during preview phase', () => {
+      expect(game.isInPreview).toBe(true);
+
+      const targetChar = game.targetSequence[0]!;
+      const result = game.handleCharInput(targetChar);
+
+      expect(result).toBe(true);
+      expect(game.currentPosition).toBe(1);
+    });
+
+    it('should increment successCount on correct input', () => {
+      const before = game.successCount;
+      game.handleCharInput(game.targetSequence[0]!);
+
+      expect(game.successCount).toBe(before + 1);
+    });
+
+    it('should increment failCount on wrong input', () => {
+      const before = game.failCount;
+      game.handleCharInput(findWrongChar(game));
+
+      expect(game.failCount).toBe(before + 1);
     });
   });
 
-  describe('key input', () => {
+  describe('code completion and escalation', () => {
     beforeEach(() => {
       game.start();
     });
 
-    it('should handle Digit key codes', () => {
-      const targetDigit = game.getTargetDigit(0);
-      if (targetDigit === undefined) {return;}
+    it('should increment codesCracked on completing a code', () => {
+      completeCurrentCode(game);
 
-      const feedback = game.handleKeyInput(`Digit${targetDigit}`);
-
-      expect(feedback).toBe('correct');
+      expect(game.codesCracked).toBe(1);
     });
 
-    it('should handle Numpad key codes', () => {
-      const targetDigit = game.getTargetDigit(0);
-      if (targetDigit === undefined) {return;}
+    it('should increase code length after completion', () => {
+      const initialLength = game.currentCodeLength;
 
-      const feedback = game.handleKeyInput(`Numpad${targetDigit}`);
+      completeCurrentCode(game);
 
-      expect(feedback).toBe('correct');
-    });
-
-    it('should handle plain digit strings', () => {
-      const targetDigit = game.getTargetDigit(0);
-      if (targetDigit === undefined) {return;}
-
-      const feedback = game.handleKeyInput(`${targetDigit}`);
-
-      expect(feedback).toBe('correct');
-    });
-
-    it('should return null for non-digit keys', () => {
-      expect(game.handleKeyInput('KeyA')).toBeNull();
-      expect(game.handleKeyInput('Enter')).toBeNull();
-      expect(game.handleKeyInput('Escape')).toBeNull();
-    });
-  });
-
-  describe('sequence completion', () => {
-    beforeEach(() => {
-      game.start();
-    });
-
-    it('should complete sequence when all digits correct', () => {
-      const completedListener = vi.fn();
-      game.on('sequence-complete' as any, completedListener);
-
-      // Enter all correct digits
-      for (let i = 0; i < game.sequenceLength; i++) {
-        const target = game.getTargetDigit(i);
-        if (target !== undefined) {
-          game.handleDigitInput(target);
-        }
-      }
-
-      expect(completedListener).toHaveBeenCalled();
-      expect(game.sequencesCompleted).toBe(1);
+      expect(game.currentCodeLength).toBe(initialLength + defaultConfig.lengthIncrement);
     });
 
     it('should generate new sequence after completion', () => {
-      // Complete the sequence
-      for (let i = 0; i < game.sequenceLength; i++) {
-        const target = game.getTargetDigit(i);
-        if (target !== undefined) {
-          game.handleDigitInput(target);
-        }
-      }
+      completeCurrentCode(game);
 
-      // New sequence should be generated - input is reset
       expect(game.inputSequence).toEqual([]);
       expect(game.currentPosition).toBe(0);
-    });
-
-    it('should award bonus points on sequence completion', () => {
-      const scoreBeforeSequence = game.score;
-
-      // Complete a sequence
-      for (let i = 0; i < game.sequenceLength; i++) {
-        const target = game.getTargetDigit(i);
-        if (target !== undefined) {
-          game.handleDigitInput(target);
-        }
-      }
-
-      // Score should include base points + sequence bonus
-      expect(game.score).toBeGreaterThan(
-        scoreBeforeSequence + game.sequenceLength * DEFAULT_CONFIG.minigames.codeBreaker.pointsPerDigit
+      expect(game.targetSequence).toHaveLength(
+        defaultConfig.startingCodeLength + defaultConfig.lengthIncrement
       );
     });
+
+    it('should reset per-code timer after completion', () => {
+      // Consume some time
+      game.update(defaultConfig.previewDurationMs); // finish preview
+      game.update(2000); // consume 2 seconds
+
+      const timeAfterConsume = game.perCodeTimeRemainingMs;
+      expect(timeAfterConsume).toBeLessThan(defaultConfig.perCodeTimeLimitMs);
+
+      completeCurrentCode(game);
+
+      // Timer should be reset to effective limit for new (longer) code
+      const expectedTime =
+        defaultConfig.perCodeTimeLimitMs +
+        defaultConfig.lengthIncrement * defaultConfig.timePerExtraCharMs;
+      expect(game.perCodeTimeRemainingMs).toBe(expectedTime);
+    });
+
+    it('should reset preview timer after completion', () => {
+      // Exhaust preview
+      game.update(defaultConfig.previewDurationMs);
+      expect(game.isInPreview).toBe(false);
+
+      completeCurrentCode(game);
+
+      expect(game.isInPreview).toBe(true);
+      expect(game.previewRemainingMs).toBe(defaultConfig.previewDurationMs);
+    });
+
+    it('should emit sequence-complete event', () => {
+      const listener = vi.fn();
+      game.on('sequence-complete' as any, listener);
+
+      completeCurrentCode(game);
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          minigameId: 'code-breaker',
+          data: expect.objectContaining({
+            sequenceNumber: 1,
+            codeLength: defaultConfig.startingCodeLength,
+          }),
+        })
+      );
+    });
+
+    it('should complete multiple codes with escalating length', () => {
+      completeCurrentCode(game);
+      expect(game.codesCracked).toBe(1);
+      expect(game.currentCodeLength).toBe(defaultConfig.startingCodeLength + 1);
+
+      completeCurrentCode(game);
+      expect(game.codesCracked).toBe(2);
+      expect(game.currentCodeLength).toBe(defaultConfig.startingCodeLength + 2);
+
+      completeCurrentCode(game);
+      expect(game.codesCracked).toBe(3);
+      expect(game.currentCodeLength).toBe(defaultConfig.startingCodeLength + 3);
+    });
   });
 
-  describe('timer', () => {
+  describe('per-code timer', () => {
     beforeEach(() => {
       game.start();
     });
 
-    it('should count down time', () => {
-      const initialTime = game.timeRemainingMs;
+    it('should not decrement per-code timer during preview', () => {
+      const initialTime = game.perCodeTimeRemainingMs;
+
+      game.update(500); // less than preview duration
+
+      expect(game.perCodeTimeRemainingMs).toBe(initialTime);
+      expect(game.previewRemainingMs).toBe(defaultConfig.previewDurationMs - 500);
+    });
+
+    it('should decrement preview timer during preview', () => {
+      game.update(300);
+
+      expect(game.previewRemainingMs).toBe(defaultConfig.previewDurationMs - 300);
+    });
+
+    it('should start decrementing per-code timer after preview ends', () => {
+      const initialTime = game.perCodeTimeRemainingMs;
+
+      // Finish preview
+      game.update(defaultConfig.previewDurationMs);
+      expect(game.isInPreview).toBe(false);
+
+      // Now timer should decrement
       game.update(1000);
 
-      expect(game.timeRemainingMs).toBe(initialTime - 1000);
+      expect(game.perCodeTimeRemainingMs).toBe(initialTime - 1000);
     });
 
-    it('should end game when time runs out', () => {
-      const timeLimitMs = game.timeLimitMs;
-      game.update(timeLimitMs + 1000);
+    it('should end game when per-code timer expires', () => {
+      // Finish preview
+      game.update(defaultConfig.previewDurationMs);
+
+      // Expire per-code timer
+      game.update(defaultConfig.perCodeTimeLimitMs + 100);
 
       expect(game.phase).toBe('ended');
+      expect(game.failReason).toBe('timeout');
+    });
+
+    it('should emit time-up event on timeout', () => {
+      const listener = vi.fn();
+      game.on('time-up' as any, listener);
+
+      game.update(defaultConfig.previewDurationMs);
+      game.update(defaultConfig.perCodeTimeLimitMs + 100);
+
+      expect(listener).toHaveBeenCalled();
+    });
+
+    it('should not end game via base class timer', () => {
+      // Base class timer is bypassed (timeLimitMs = 0)
+      // Even updating with very large deltaMs should not trigger base class time-up
+      // Only our per-code timer should matter
+      game.update(defaultConfig.previewDurationMs);
+      game.update(2000); // Only 2 seconds of per-code timer consumed
+
+      expect(game.phase).toBe('playing');
     });
   });
 
-  describe('getters', () => {
-    beforeEach(() => {
+  describe('effective time limit scaling', () => {
+    it('should return base time for starting code length', () => {
       game.start();
+
+      expect(game.effectiveTimeLimitMs).toBe(defaultConfig.perCodeTimeLimitMs);
     });
 
-    it('should provide read-only target sequence', () => {
-      const sequence = game.targetSequence;
+    it('should add time for extra characters', () => {
+      game.start();
 
-      expect(Array.isArray(sequence)).toBe(true);
-      // TypeScript readonly prevents modification, but test the accessor
-      expect(sequence.length).toBe(game.sequenceLength);
+      // Complete first code to increase length
+      completeCurrentCode(game);
+
+      const expectedTime =
+        defaultConfig.perCodeTimeLimitMs +
+        defaultConfig.lengthIncrement * defaultConfig.timePerExtraCharMs;
+      expect(game.effectiveTimeLimitMs).toBe(expectedTime);
     });
 
-    it('should get target digit at position', () => {
-      const digit = game.getTargetDigit(0);
+    it('should include upgrade bonus in effective time', () => {
+      game.setUpgradeBonusMs(1000);
+      game.start();
 
-      expect(typeof digit).toBe('number');
-      expect(digit).toBe(game.targetSequence[0]);
+      expect(game.effectiveTimeLimitMs).toBe(defaultConfig.perCodeTimeLimitMs + 1000);
+      expect(game.perCodeTimeRemainingMs).toBe(defaultConfig.perCodeTimeLimitMs + 1000);
     });
 
-    it('should return undefined for out-of-bounds position', () => {
-      expect(game.getTargetDigit(-1)).toBeUndefined();
-      expect(game.getTargetDigit(100)).toBeUndefined();
+    it('should combine extra char time and upgrade bonus', () => {
+      game.setUpgradeBonusMs(500);
+      game.start();
+
+      completeCurrentCode(game);
+
+      const expectedTime =
+        defaultConfig.perCodeTimeLimitMs +
+        defaultConfig.lengthIncrement * defaultConfig.timePerExtraCharMs +
+        500;
+      expect(game.effectiveTimeLimitMs).toBe(expectedTime);
+    });
+  });
+
+  describe('scoring', () => {
+    it('should set score to codes cracked during play', () => {
+      game.start();
+
+      completeCurrentCode(game);
+      expect(game.score).toBe(1);
+
+      completeCurrentCode(game);
+      expect(game.score).toBe(2);
     });
 
-    it('should check if position is complete', () => {
-      expect(game.isPositionComplete(0)).toBe(false);
+    it('should multiply score by 100 on end', () => {
+      game.start();
 
-      const target = game.getTargetDigit(0);
-      if (target !== undefined) {
-        game.handleDigitInput(target);
-      }
+      completeCurrentCode(game);
+      completeCurrentCode(game);
+      completeCurrentCode(game);
+      game.end();
 
-      expect(game.isPositionComplete(0)).toBe(true);
-      expect(game.isPositionComplete(1)).toBe(false);
+      expect(game.score).toBe(300); // 3 codes * 100
     });
 
-    it('should track last input feedback', () => {
-      expect(game.lastInputFeedback).toBeNull();
+    it('should have score 0 if no codes cracked', () => {
+      game.start();
+      game.end();
 
-      const target = game.getTargetDigit(0);
-      if (target !== undefined) {
-        game.handleDigitInput(target);
-        expect(game.lastInputFeedback).toBe('correct');
-
-        const wrong = (target + 5) % 10;
-        game.handleDigitInput(wrong);
-        expect(game.lastInputFeedback === 'wrong' || game.lastInputFeedback === 'wrong-position').toBe(true);
-      }
+      expect(game.score).toBe(0);
     });
   });
 
   describe('reward calculation', () => {
-    it('should calculate money reward correctly', () => {
+    it('should return 0 money when no codes cracked', () => {
       game.start();
 
-      // Add some score
-      for (let i = 0; i < 3 && i < game.sequenceLength; i++) {
-        const target = game.getTargetDigit(i);
-        if (target !== undefined) {
-          game.handleDigitInput(target);
-        }
-      }
-
-      const reward = game.calculateMoneyReward();
-      const expectedReward = String(
-        Math.floor(game.score * DEFAULT_CONFIG.minigames.codeBreaker.scoreToMoneyRatio)
-      );
-
-      expect(reward).toBe(expectedReward);
+      expect(game.calculateMoneyReward()).toBe('0');
     });
 
-    it('should calculate reward statically', () => {
-      const reward = CodeBreakerGame.calculateReward(1000);
+    it('should calculate money as sum of baseMoneyPerCode * codeLength', () => {
+      game.start();
 
-      expect(reward).toBe(
-        String(Math.floor(1000 * DEFAULT_CONFIG.minigames.codeBreaker.scoreToMoneyRatio))
+      // First code: length 5 -> 5 * 5 = 25
+      completeCurrentCode(game);
+      expect(game.calculateMoneyReward()).toBe(
+        String(defaultConfig.baseMoneyPerCode * defaultConfig.startingCodeLength)
       );
+
+      // Second code: length 6 -> 5 * 6 = 30, total = 55
+      completeCurrentCode(game);
+      const expectedTotal =
+        defaultConfig.baseMoneyPerCode * defaultConfig.startingCodeLength +
+        defaultConfig.baseMoneyPerCode * (defaultConfig.startingCodeLength + defaultConfig.lengthIncrement);
+      expect(game.calculateMoneyReward()).toBe(String(expectedTotal));
+    });
+
+    it('should accumulate money across multiple codes', () => {
+      game.start();
+
+      // Crack 3 codes: lengths 5, 6, 7
+      completeCurrentCode(game); // 5 * 5 = 25
+      completeCurrentCode(game); // 5 * 6 = 30
+      completeCurrentCode(game); // 5 * 7 = 35
+
+      // Total: 25 + 30 + 35 = 90
+      expect(game.calculateMoneyReward()).toBe('90');
     });
   });
 
@@ -402,46 +484,88 @@ describe('CodeBreakerGame', () => {
       game.start();
     });
 
-    it('should emit digit-correct event', () => {
+    it('should emit char-correct event', () => {
       const listener = vi.fn();
-      game.on('digit-correct' as any, listener);
+      game.on('char-correct' as any, listener);
 
-      const target = game.getTargetDigit(0);
-      if (target !== undefined) {
-        game.handleDigitInput(target);
-      }
+      const target = game.targetSequence[0]!;
+      game.handleCharInput(target);
 
       expect(listener).toHaveBeenCalledWith(
         expect.objectContaining({
           minigameId: 'code-breaker',
           data: expect.objectContaining({
-            digit: expect.any(Number),
+            char: target,
             position: 0,
           }),
         })
       );
     });
 
-    it('should emit digit-wrong event', () => {
+    it('should emit char-wrong event on wrong input', () => {
       const listener = vi.fn();
-      game.on('digit-wrong' as any, listener);
+      game.on('char-wrong' as any, listener);
 
-      const target = game.getTargetDigit(0);
-      if (target !== undefined) {
-        const wrong = (target + 5) % 10;
-        game.handleDigitInput(wrong);
-      }
+      const wrongChar = findWrongChar(game);
+      game.handleCharInput(wrongChar);
 
       expect(listener).toHaveBeenCalledWith(
         expect.objectContaining({
           minigameId: 'code-breaker',
           data: expect.objectContaining({
-            digit: expect.any(Number),
-            feedback: expect.any(String),
+            char: wrongChar,
             position: 0,
           }),
         })
       );
+    });
+
+    it('should emit end event after wrong input', () => {
+      const listener = vi.fn();
+      game.on('end' as any, listener);
+
+      game.handleCharInput(findWrongChar(game));
+
+      expect(listener).toHaveBeenCalled();
+    });
+  });
+
+  describe('fail reason tracking', () => {
+    it('should be null before game starts', () => {
+      expect(game.failReason).toBeNull();
+    });
+
+    it('should be null while playing successfully', () => {
+      game.start();
+      game.handleCharInput(game.targetSequence[0]!);
+
+      expect(game.failReason).toBeNull();
+    });
+
+    it('should be wrong-input on wrong character', () => {
+      game.start();
+      game.handleCharInput(findWrongChar(game));
+
+      expect(game.failReason).toBe('wrong-input');
+    });
+
+    it('should be timeout on timer expiry', () => {
+      game.start();
+      game.update(defaultConfig.previewDurationMs);
+      game.update(defaultConfig.perCodeTimeLimitMs + 100);
+
+      expect(game.failReason).toBe('timeout');
+    });
+  });
+
+  describe('no combo usage', () => {
+    it('should not change combo on correct input', () => {
+      game.start();
+
+      game.handleCharInput(game.targetSequence[0]!);
+
+      // Combo should stay at default (1) since we never call incrementCombo
+      expect(game.combo).toBe(1);
     });
   });
 
@@ -456,13 +580,15 @@ describe('CodeBreakerGame', () => {
     });
 
     it('should accept custom config', () => {
-      const customConfig = {
-        ...DEFAULT_CONFIG.minigames.codeBreaker,
-        sequenceLength: 8,
+      const customConfig: CodeBreakerConfig = {
+        ...defaultConfig,
+        startingCodeLength: 8,
       };
       const newGame = createCodeBreakerGame(customConfig);
+      newGame.start();
 
-      expect(newGame.sequenceLength).toBe(8);
+      expect(newGame.currentCodeLength).toBe(8);
+      expect(newGame.targetSequence).toHaveLength(8);
 
       newGame.destroy();
     });

@@ -731,7 +731,9 @@ describe('SaveManager', () => {
 
       expect(result.success).toBe(true);
       expect(result.state?.resources.money).toBe('999');
-      expect(result.state?.minigames['code-breaker']?.topScores).toEqual(['100', '50']);
+      // Code Breaker scores are cleared during 2.0.0 -> 2.1.0 migration
+      // (score semantics changed from point totals to codes-cracked counts)
+      expect(result.state?.minigames['code-breaker']?.topScores).toEqual([]);
       expect(result.state?.upgrades.equipment['test-upgrade']).toBe(2);
     });
   });

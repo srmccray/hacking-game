@@ -477,6 +477,27 @@ export class SaveManager {
           totalOfflineTime: migratedState.stats.totalOfflineTime ?? 0,
         },
       };
+      // Mark as 2.0.0 so subsequent migrations can trigger
+      migratedState.version = '2.0.0';
+    }
+
+    // Version 2.0.0 -> 2.1.0: Reset Code Breaker top scores
+    // Score semantics changed from point totals to codes-cracked counts.
+    // Old scores would be meaningless with the new system.
+    if (migratedState.version === '2.0.0') {
+      if (migratedState.minigames['code-breaker']) {
+        migratedState = {
+          ...migratedState,
+          minigames: {
+            ...migratedState.minigames,
+            'code-breaker': {
+              ...migratedState.minigames['code-breaker'],
+              topScores: [],
+            },
+          },
+        };
+      }
+      migratedState.version = '2.1.0';
     }
 
     // Ensure version is current after migrations

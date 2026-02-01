@@ -17,7 +17,7 @@ describe('game-store', () => {
     it('should create a store with initial state', () => {
       const state = store.getState();
 
-      expect(state.version).toBe('2.0.0');
+      expect(state.version).toBe('2.1.0');
       expect(state.playerName).toBe('');
       expect(state.resources.money).toBe('0');
       expect(state.resources.technique).toBe('0');

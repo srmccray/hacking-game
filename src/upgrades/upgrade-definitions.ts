@@ -38,7 +38,8 @@ export type UpgradeCategory = 'equipment' | 'apartment' | 'consumable' | 'hardwa
  */
 export type EquipmentEffectType =
   | 'auto_generation_multiplier' // Multiplies auto-generation rate
-  | 'combo_multiplier_bonus'; // Adds to Code Breaker combo multiplier
+  | 'combo_multiplier_bonus' // Adds to Code Breaker combo multiplier
+  | 'per_code_time_bonus'; // Adds seconds to per-code time limit in Code Breaker
 
 /**
  * Apartment upgrade effect types
@@ -191,20 +192,20 @@ const autoTyperUpgrade: EquipmentUpgrade = {
 
 /**
  * Better Keyboard (Equipment)
- * Increases Code Breaker combo multiplier bonus.
+ * Adds time per code attempt in Code Breaker.
  */
 const betterKeyboardUpgrade: EquipmentUpgrade = {
   id: 'better-keyboard',
   name: 'Better Keyboard',
-  description: 'Mechanical keyboard with faster response. Increases combo multiplier by +0.1x per level.',
+  description: 'Mechanical keyboard with faster response. Adds +0.3s per code attempt per level.',
   category: 'equipment',
   costResource: 'money',
   baseCost: '250',
   maxLevel: 0, // Unlimited
   costGrowthRate: '1.15',
-  effectType: 'combo_multiplier_bonus',
+  effectType: 'per_code_time_bonus',
   baseEffect: 0.0, // No base bonus
-  effectPerLevel: 0.1, // +0.1x combo per level
+  effectPerLevel: 0.3, // +0.3s per level
 };
 
 /**
@@ -647,6 +648,9 @@ export function getUpgradeEffectFormatted(store: GameStore, upgradeId: string): 
       if (equip.effectType === 'combo_multiplier_bonus') {
         return `+${effect.toFixed(1)}x combo`;
       }
+      if (equip.effectType === 'per_code_time_bonus') {
+        return `+${effect.toFixed(1)}s per code`;
+      }
       return `${effect}`;
     }
 
@@ -716,6 +720,26 @@ export function getAutoGenerationMultiplier(store: GameStore): number {
  */
 export function getComboMultiplierBonus(store: GameStore): number {
   return getUpgradeEffect(store, 'better-keyboard');
+}
+
+/**
+ * Get the total per-code time bonus from all upgrades.
+ * This is the extra seconds added to each code attempt in Code Breaker.
+ *
+ * @param store - The game store
+ * @returns The bonus seconds to add to per-code time limit
+ */
+export function getPerCodeTimeBonus(store: GameStore): number {
+  // Currently only better-keyboard provides this, but sum all per_code_time_bonus
+  // equipment upgrades for future extensibility
+  let total = 0;
+  for (const upgrade of UPGRADES_BY_CATEGORY.equipment) {
+    const equip = upgrade as EquipmentUpgrade;
+    if (equip.effectType === 'per_code_time_bonus') {
+      total += getUpgradeEffect(store, equip.id);
+    }
+  }
+  return total;
 }
 
 /**

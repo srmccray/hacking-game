@@ -11,8 +11,7 @@
 export {
   CodeBreakerGame,
   createCodeBreakerGame,
-  type DigitFeedback,
-  type DigitState,
+  type FailReason,
   type CodeBreakerEventType,
 } from './CodeBreakerGame';
 
@@ -32,7 +31,7 @@ import { createCodeBreakerScene } from './CodeBreakerScene';
 export const CODE_BREAKER_DEFINITION: MinigameDefinition = {
   id: 'code-breaker',
   name: 'Code Breaker',
-  description: 'Match number sequences to hack into systems. Build combos for bonus points!',
+  description: 'Crack codes before time runs out. Wrong input = game over!',
   primaryResource: 'money',
   createScene: (game: GameInstance) => createCodeBreakerScene(game),
 };

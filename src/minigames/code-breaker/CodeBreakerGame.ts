@@ -1,28 +1,31 @@
 /**
  * Code Breaker Game Logic
  *
- * A sequence matching minigame where players type digits to match a target sequence.
- * Features:
- * - Random digit sequence generation (configurable length)
- * - Position-based feedback (correct, wrong position, not in code)
- * - Combo system for consecutive correct inputs
- * - Timer-based scoring
- * - Configurable via GameConfig
+ * A per-code countdown challenge where players type characters to match a target
+ * sequence before time runs out. Features:
+ * - Expanded character set (A-Z, 0-9, !@#$%^&* = 44 characters)
+ * - Per-code timer that resets on each successful crack
+ * - Escalating code length (increases by 1 per successful crack)
+ * - Immediate failure on wrong input or timer expiry
+ * - Preview phase before timer starts (input accepted during preview)
+ * - Money reward scales with code length
  *
  * Game Rules:
- * - A target sequence of digits is displayed
- * - Player types digits 0-9 to match from left to right
- * - Correct digit: advances position, adds score with combo, increments combo
- * - Wrong digit: resets combo, records fail (does not advance)
- * - Completing a sequence: bonus points, generates new sequence
- * - Game ends when timer runs out
+ * - A target sequence of characters is displayed
+ * - Player types characters to match from left to right
+ * - Correct character: advances position
+ * - Wrong character: immediate game over (_failReason = 'wrong-input')
+ * - Timer expires: immediate game over (_failReason = 'timeout')
+ * - Completing a code: increment code length, generate new code, reset timer
+ * - Score = number of codes cracked (multiplied by 100 for storage)
+ * - Money = sum of baseMoneyPerCode * codeLength for each cracked code
  *
  * Usage:
  *   const game = new CodeBreakerGame(config.minigames.codeBreaker);
  *   game.start();
  *
- *   // Handle digit input
- *   game.handleDigitInput(5); // returns feedback
+ *   // Handle character input
+ *   game.handleCharInput('A'); // returns true if accepted
  *
  *   // In game loop
  *   game.update(deltaMs);
@@ -37,27 +40,17 @@ import { DEFAULT_CONFIG } from '../../game/GameConfig';
 // ============================================================================
 
 /**
- * Feedback for a digit input attempt.
+ * Reason the game ended in failure.
  */
-export type DigitFeedback = 'correct' | 'wrong' | 'wrong-position';
-
-/**
- * State of each digit position in the input.
- */
-export interface DigitState {
-  /** The digit value (0-9) or null if not yet entered */
-  value: number | null;
-  /** Feedback for this position */
-  feedback: DigitFeedback | null;
-}
+export type FailReason = 'wrong-input' | 'timeout' | null;
 
 /**
  * Events specific to Code Breaker.
  */
 export type CodeBreakerEventType =
   | MinigameEventType
-  | 'digit-correct'
-  | 'digit-wrong'
+  | 'char-correct'
+  | 'char-wrong'
   | 'sequence-complete';
 
 // ============================================================================
@@ -66,6 +59,9 @@ export type CodeBreakerEventType =
 
 /**
  * Code Breaker minigame logic.
+ *
+ * Manages per-code timers internally. Sets _timeLimitMs = 0 in onStart()
+ * to bypass BaseMinigame's session timer (line 357 checks if > 0).
  */
 export class CodeBreakerGame extends BaseMinigame {
   readonly id = 'code-breaker';
@@ -81,20 +77,35 @@ export class CodeBreakerGame extends BaseMinigame {
   // Game State
   // ==========================================================================
 
-  /** The target sequence to match */
-  private _targetSequence: number[] = [];
+  /** The target sequence to match (array of single characters) */
+  private _targetSequence: string[] = [];
 
   /** Player's input sequence (partial, up to current position) */
-  private _inputSequence: number[] = [];
+  private _inputSequence: string[] = [];
 
   /** Current position in the sequence (0 to length-1) */
   private _currentPosition: number = 0;
 
-  /** Number of sequences completed this session */
-  private _sequencesCompleted: number = 0;
+  /** Current code length (starts at config.startingCodeLength, grows each round) */
+  private _currentCodeLength: number = 0;
 
-  /** Result of the last digit input for visual feedback */
-  private _lastInputFeedback: DigitFeedback | null = null;
+  /** Number of codes cracked this session */
+  private _codesCracked: number = 0;
+
+  /** Per-code time remaining in milliseconds */
+  private _perCodeTimeRemainingMs: number = 0;
+
+  /** Preview time remaining in milliseconds (input accepted during preview) */
+  private _previewRemainingMs: number = 0;
+
+  /** Reason the game ended, or null if still playing / not failed */
+  private _failReason: FailReason = null;
+
+  /** Total money earned this session (sum of baseMoneyPerCode * codeLength per crack) */
+  private _totalMoneyEarned: number = 0;
+
+  /** Upgrade bonus time in milliseconds (set externally before start) */
+  private _upgradeBonusMs: number = 0;
 
   // ==========================================================================
   // Constructor
@@ -108,7 +119,6 @@ export class CodeBreakerGame extends BaseMinigame {
   constructor(config?: CodeBreakerConfig) {
     super();
     this.config = config ?? DEFAULT_CONFIG.minigames.codeBreaker;
-    this.setTimeLimit(this.config.timeLimitMs);
   }
 
   // ==========================================================================
@@ -116,12 +126,12 @@ export class CodeBreakerGame extends BaseMinigame {
   // ==========================================================================
 
   /** Get the current target sequence (read-only copy) */
-  get targetSequence(): readonly number[] {
+  get targetSequence(): readonly string[] {
     return this._targetSequence;
   }
 
   /** Get the player's input sequence (read-only copy) */
-  get inputSequence(): readonly number[] {
+  get inputSequence(): readonly string[] {
     return this._inputSequence;
   }
 
@@ -130,34 +140,53 @@ export class CodeBreakerGame extends BaseMinigame {
     return this._currentPosition;
   }
 
-  /** Get the sequence length from config */
-  get sequenceLength(): number {
-    return this.config.sequenceLength;
+  /** Get the current code length */
+  get currentCodeLength(): number {
+    return this._currentCodeLength;
   }
 
-  /** Get the number of sequences completed */
-  get sequencesCompleted(): number {
-    return this._sequencesCompleted;
+  /** Get the number of codes cracked */
+  get codesCracked(): number {
+    return this._codesCracked;
   }
 
-  /** Get the feedback from the last input attempt */
-  get lastInputFeedback(): DigitFeedback | null {
-    return this._lastInputFeedback;
+  /** Get the per-code time remaining in milliseconds */
+  get perCodeTimeRemainingMs(): number {
+    return this._perCodeTimeRemainingMs;
   }
 
-  /** Get the digit at a specific position in the target */
-  getTargetDigit(position: number): number | undefined {
-    return this._targetSequence[position];
+  /** Get the preview time remaining in milliseconds */
+  get previewRemainingMs(): number {
+    return this._previewRemainingMs;
   }
 
-  /** Get the digit at a specific position in the input */
-  getInputDigit(position: number): number | undefined {
-    return this._inputSequence[position];
+  /** Whether the game is currently in the preview phase */
+  get isInPreview(): boolean {
+    return this._previewRemainingMs > 0;
   }
 
-  /** Check if a position has been completed */
-  isPositionComplete(position: number): boolean {
-    return position < this._inputSequence.length;
+  /** Get the reason the game failed, or null */
+  get failReason(): FailReason {
+    return this._failReason;
+  }
+
+  /** Get the effective time limit for the current code (including scaling and bonuses) */
+  get effectiveTimeLimitMs(): number {
+    return this.calculateEffectiveTimeLimit();
+  }
+
+  // ==========================================================================
+  // Public Methods
+  // ==========================================================================
+
+  /**
+   * Set the upgrade bonus time (call before start()).
+   * This is the total bonus from all upgrades (Better Keyboard + Coffee Machine).
+   *
+   * @param bonusMs - Bonus time in milliseconds
+   */
+  setUpgradeBonusMs(bonusMs: number): void {
+    this._upgradeBonusMs = bonusMs;
   }
 
   // ==========================================================================
@@ -165,19 +194,40 @@ export class CodeBreakerGame extends BaseMinigame {
   // ==========================================================================
 
   protected onStart(): void {
-    this._sequencesCompleted = 0;
-    this._lastInputFeedback = null;
+    // Bypass base class timer by setting _timeLimitMs = 0
+    this._timeLimitMs = 0;
+
+    this._currentCodeLength = this.config.startingCodeLength;
+    this._codesCracked = 0;
+    this._failReason = null;
+    this._totalMoneyEarned = 0;
+
     this.generateNewSequence();
+    this.resetPerCodeTimer();
   }
 
   protected onEnd(): void {
-    // Final state cleanup if needed
-    this._lastInputFeedback = null;
+    // Final state: score = codes cracked (multiplied by 100 for storage compatibility)
+    this._score = this._codesCracked * 100;
   }
 
-  protected onUpdate(_deltaMs: number): void {
-    // Timer is handled by base class
-    // Could implement combo decay here if desired
+  protected onUpdate(deltaMs: number): void {
+    // Handle preview phase countdown
+    if (this._previewRemainingMs > 0) {
+      this._previewRemainingMs = Math.max(0, this._previewRemainingMs - deltaMs);
+      // During preview, timer does not count down, but input is accepted
+      return;
+    }
+
+    // Decrement per-code timer
+    this._perCodeTimeRemainingMs = Math.max(0, this._perCodeTimeRemainingMs - deltaMs);
+
+    // Check for timeout
+    if (this._perCodeTimeRemainingMs <= 0) {
+      this._failReason = 'timeout';
+      this.emit('time-up' as MinigameEventType, { minigameId: this.id });
+      this.end();
+    }
   }
 
   // ==========================================================================
@@ -185,57 +235,28 @@ export class CodeBreakerGame extends BaseMinigame {
   // ==========================================================================
 
   /**
-   * Handle a digit input from the player.
+   * Handle a character input from the player.
    *
-   * @param digit - The digit (0-9) entered by the player
-   * @returns The feedback for this input, or null if not playing
+   * @param char - The character entered by the player (should be uppercase)
+   * @returns true if the character was correct, false if wrong (game ends), null if not playing
    */
-  handleDigitInput(digit: number): DigitFeedback | null {
+  handleCharInput(char: string): boolean | null {
     if (!this.isPlaying) {
       return null;
     }
 
-    // Validate digit
-    if (digit < 0 || digit > 9 || !Number.isInteger(digit)) {
-      console.warn(`[CodeBreaker] Invalid digit: ${digit}`);
+    // Validate: must be a single character in the character set
+    if (char.length !== 1 || !this.config.characterSet.includes(char)) {
       return null;
     }
 
-    const targetDigit = this._targetSequence[this._currentPosition];
+    const targetChar = this._targetSequence[this._currentPosition];
 
-    if (digit === targetDigit) {
-      return this.handleCorrectDigit(digit);
+    if (char === targetChar) {
+      return this.handleCorrectChar(char);
     } else {
-      return this.handleWrongDigit(digit, targetDigit);
+      return this.handleWrongChar(char);
     }
-  }
-
-  /**
-   * Handle a key code input (e.g., 'Digit5' or '5').
-   * Extracts the digit and calls handleDigitInput.
-   *
-   * @param keyCode - The key code string
-   * @returns The feedback, or null if invalid key or not playing
-   */
-  handleKeyInput(keyCode: string): DigitFeedback | null {
-    // Handle both 'Digit5' and '5' formats
-    let digit: number;
-
-    if (keyCode.startsWith('Digit')) {
-      digit = parseInt(keyCode.slice(5), 10);
-    } else if (keyCode.startsWith('Numpad')) {
-      digit = parseInt(keyCode.slice(6), 10);
-    } else if (/^[0-9]$/.test(keyCode)) {
-      digit = parseInt(keyCode, 10);
-    } else {
-      return null;
-    }
-
-    if (isNaN(digit)) {
-      return null;
-    }
-
-    return this.handleDigitInput(digit);
   }
 
   // ==========================================================================
@@ -243,86 +264,103 @@ export class CodeBreakerGame extends BaseMinigame {
   // ==========================================================================
 
   /**
-   * Handle a correct digit input.
+   * Handle a correct character input.
    */
-  private handleCorrectDigit(digit: number): DigitFeedback {
-    this._lastInputFeedback = 'correct';
-    this._inputSequence.push(digit);
+  private handleCorrectChar(char: string): true {
+    this._inputSequence.push(char);
     this._currentPosition++;
+    this._successCount++;
 
-    // Award points for correct digit
-    this.addScore(this.config.pointsPerDigit);
-
-    // Increment combo
-    this.incrementCombo();
-
-    // Emit digit-correct event
-    this.emit('digit-correct' as MinigameEventType, {
+    // Emit char-correct event
+    this.emit('char-correct' as MinigameEventType, {
       minigameId: this.id,
       data: {
-        digit,
+        char,
         position: this._currentPosition - 1,
       },
     });
 
-    // Check for sequence completion
-    if (this._currentPosition >= this.config.sequenceLength) {
-      this.handleSequenceComplete();
+    // Check for code completion
+    if (this._currentPosition >= this._currentCodeLength) {
+      this.handleCodeComplete();
     }
 
-    return 'correct';
+    return true;
   }
 
   /**
-   * Handle a wrong digit input.
+   * Handle a wrong character input. Immediately ends the game.
    */
-  private handleWrongDigit(digit: number, targetDigit: number | undefined): DigitFeedback {
-    // Check if digit exists elsewhere in the remaining sequence
-    const isInSequence = this._targetSequence
-      .slice(this._currentPosition)
-      .includes(digit);
+  private handleWrongChar(_char: string): false {
+    this._failReason = 'wrong-input';
+    this._failCount++;
 
-    const feedback: DigitFeedback = isInSequence ? 'wrong-position' : 'wrong';
-    this._lastInputFeedback = feedback;
-
-    // Reset combo on wrong input
-    this.resetCombo();
-
-    // Emit digit-wrong event
-    this.emit('digit-wrong' as MinigameEventType, {
+    // Emit char-wrong event (immediately before end)
+    this.emit('char-wrong' as MinigameEventType, {
       minigameId: this.id,
       data: {
-        digit,
-        targetDigit,
-        feedback,
+        char: _char,
         position: this._currentPosition,
       },
     });
 
-    return feedback;
+    this.end();
+    return false;
   }
 
   /**
-   * Handle completion of a sequence.
+   * Handle completion of a code.
    */
-  private handleSequenceComplete(): void {
-    this._sequencesCompleted++;
+  private handleCodeComplete(): void {
+    this._codesCracked++;
 
-    // Bonus points for completing the sequence
-    this.addScore(this.config.baseSequencePoints);
+    // Accumulate money: baseMoneyPerCode * current code length
+    this._totalMoneyEarned += this.config.baseMoneyPerCode * this._currentCodeLength;
+
+    // Update score (raw codes cracked, onEnd multiplies by 100)
+    this._score = this._codesCracked;
 
     // Emit sequence-complete event
     this.emit('sequence-complete' as MinigameEventType, {
       minigameId: this.id,
       data: {
-        sequenceNumber: this._sequencesCompleted,
-        combo: this.combo,
-        score: this.score,
+        sequenceNumber: this._codesCracked,
+        codeLength: this._currentCodeLength,
+        moneyEarned: this._totalMoneyEarned,
       },
     });
 
-    // Generate new sequence
+    // Escalate: increase code length
+    this._currentCodeLength += this.config.lengthIncrement;
+
+    // Generate new code and reset timer
     this.generateNewSequence();
+    this.resetPerCodeTimer();
+  }
+
+  // ==========================================================================
+  // Timer Management
+  // ==========================================================================
+
+  /**
+   * Calculate the effective time limit for the current code.
+   * Formula: perCodeTimeLimitMs + (currentCodeLength - startingCodeLength) * timePerExtraCharMs + upgradeBonusMs
+   */
+  private calculateEffectiveTimeLimit(): number {
+    const extraChars = Math.max(0, this._currentCodeLength - this.config.startingCodeLength);
+    return (
+      this.config.perCodeTimeLimitMs +
+      extraChars * this.config.timePerExtraCharMs +
+      this._upgradeBonusMs
+    );
+  }
+
+  /**
+   * Reset the per-code timer and preview timer for a new code.
+   */
+  private resetPerCodeTimer(): void {
+    this._perCodeTimeRemainingMs = this.calculateEffectiveTimeLimit();
+    this._previewRemainingMs = this.config.previewDurationMs;
   }
 
   // ==========================================================================
@@ -330,29 +368,34 @@ export class CodeBreakerGame extends BaseMinigame {
   // ==========================================================================
 
   /**
-   * Generate a new random sequence.
+   * Generate a new random sequence from the character set.
    */
   private generateNewSequence(): void {
     this._targetSequence = [];
     this._inputSequence = [];
     this._currentPosition = 0;
 
-    for (let i = 0; i < this.config.sequenceLength; i++) {
-      this._targetSequence.push(Math.floor(Math.random() * 10));
+    const charset = this.config.characterSet;
+    for (let i = 0; i < this._currentCodeLength; i++) {
+      const idx = Math.floor(Math.random() * charset.length);
+      this._targetSequence.push(charset[idx]!);
     }
   }
 
   /**
-   * Reset sequence state (used internally).
+   * Reset sequence state (used internally by BaseMinigame.start()).
    */
   protected override resetState(): void {
     super.resetState();
     this._targetSequence = [];
     this._inputSequence = [];
     this._currentPosition = 0;
-    this._sequencesCompleted = 0;
-    this._lastInputFeedback = null;
-    this.setTimeLimit(this.config.timeLimitMs);
+    this._currentCodeLength = 0;
+    this._codesCracked = 0;
+    this._perCodeTimeRemainingMs = 0;
+    this._previewRemainingMs = 0;
+    this._failReason = null;
+    this._totalMoneyEarned = 0;
   }
 
   // ==========================================================================
@@ -360,12 +403,12 @@ export class CodeBreakerGame extends BaseMinigame {
   // ==========================================================================
 
   /**
-   * Calculate the money reward based on the final score.
+   * Calculate the money reward based on accumulated earnings.
    *
    * @returns Money as a string (for Decimal compatibility)
    */
   calculateMoneyReward(): string {
-    return String(Math.floor(this.score * this.config.scoreToMoneyRatio));
+    return String(this._totalMoneyEarned);
   }
 
   // ==========================================================================
@@ -377,18 +420,6 @@ export class CodeBreakerGame extends BaseMinigame {
    */
   static get MINIGAME_ID(): string {
     return 'code-breaker';
-  }
-
-  /**
-   * Calculate expected money for a given score.
-   *
-   * @param score - The score
-   * @param config - Optional config (uses default if not provided)
-   * @returns Money as string
-   */
-  static calculateReward(score: number, config?: CodeBreakerConfig): string {
-    const ratio = config?.scoreToMoneyRatio ?? DEFAULT_CONFIG.minigames.codeBreaker.scoreToMoneyRatio;
-    return String(Math.floor(score * ratio));
   }
 }
 

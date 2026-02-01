@@ -445,7 +445,7 @@ export interface MinigameDefinition {
  * Current save format version.
  * Increment when making breaking changes to the save format.
  */
-export const SAVE_VERSION = '2.0.0';
+export const SAVE_VERSION = '2.1.0';
 
 /**
  * Maximum number of top scores to keep per minigame.

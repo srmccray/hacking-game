@@ -39,8 +39,7 @@ export {
   createCodeBreakerScene,
   CODE_BREAKER_DEFINITION,
   registerCodeBreaker,
-  type DigitFeedback,
-  type DigitState,
+  type FailReason,
   type CodeBreakerEventType,
 } from './code-breaker';
 
