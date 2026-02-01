@@ -415,23 +415,23 @@ class CodeRunnerScene implements Scene {
     const hudContainer = new Container();
     hudContainer.label = 'hud';
 
-    // Distance label
-    const distanceLabel = new Text({
-      text: 'DISTANCE:',
+    // Walls label
+    const wallsLabel = new Text({
+      text: 'WALLS:',
       style: terminalDimStyle,
     });
-    distanceLabel.anchor.set(0, 0.5);
-    distanceLabel.x = LAYOUT.PADDING + 20;
-    distanceLabel.y = LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING + 30;
-    hudContainer.addChild(distanceLabel);
+    wallsLabel.anchor.set(0, 0.5);
+    wallsLabel.x = LAYOUT.PADDING + 20;
+    wallsLabel.y = LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING + 30;
+    hudContainer.addChild(wallsLabel);
 
-    // Distance value
+    // Walls value
     this.distanceText = new Text({
       text: '0',
       style: scoreStyle,
     });
     this.distanceText.anchor.set(0, 0.5);
-    this.distanceText.x = distanceLabel.x + 100;
+    this.distanceText.x = wallsLabel.x + 80;
     this.distanceText.y = LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING + 30;
     hudContainer.addChild(this.distanceText);
 
@@ -466,7 +466,7 @@ class CodeRunnerScene implements Scene {
 
     this.updatePlayer(state.playerX, state.playerY);
     this.updateObstacles(state.obstacles);
-    this.updateHUD(state.distance);
+    this.updateHUD(this.minigame!.wallsPassed);
   }
 
   /**
@@ -621,9 +621,9 @@ class CodeRunnerScene implements Scene {
   /**
    * Update the HUD display.
    */
-  private updateHUD(distance: number): void {
+  private updateHUD(wallsPassed: number): void {
     if (this.distanceText) {
-      this.distanceText.text = Math.floor(distance).toString();
+      this.distanceText.text = wallsPassed.toString();
     }
   }
 
@@ -654,13 +654,13 @@ class CodeRunnerScene implements Scene {
 
     // Get final stats
     const stats = this.minigame.getFinalStats();
-    const distance = this.minigame.distance;
+    const wallsPassed = this.minigame.wallsPassed;
     const moneyReward = this.minigame.calculateMoneyReward();
 
     // Record score and award resources
     const state = this.game.store.getState();
     state.ensureMinigameState('code-runner');
-    state.recordScore('code-runner', String(Math.floor(distance)));
+    state.recordScore('code-runner', String(wallsPassed));
     state.incrementPlayCount('code-runner');
     state.addResource('money', moneyReward);
     state.trackResourceEarned('money', moneyReward);
@@ -668,15 +668,15 @@ class CodeRunnerScene implements Scene {
     // Emit completion event
     this.game.eventBus.emit(GameEvents.MINIGAME_COMPLETED, {
       minigameId: 'code-runner',
-      score: Math.floor(distance),
+      score: wallsPassed,
       maxCombo: stats.maxCombo,
       durationMs: stats.durationMs,
       rewards: { money: moneyReward },
-      isNewTopScore: this.isNewTopScore(Math.floor(distance)),
+      isNewTopScore: this.isNewTopScore(wallsPassed),
     });
 
     // Show results overlay
-    this.showResultsOverlay(distance, moneyReward);
+    this.showResultsOverlay(wallsPassed, moneyReward);
   }
 
   /**
@@ -696,7 +696,7 @@ class CodeRunnerScene implements Scene {
   /**
    * Show the results overlay.
    */
-  private showResultsOverlay(distance: number, moneyReward: string): void {
+  private showResultsOverlay(wallsPassed: number, moneyReward: string): void {
     const width = this.game.config.canvas.width;
     const height = this.game.config.canvas.height;
 
@@ -737,25 +737,25 @@ class CodeRunnerScene implements Scene {
     title.y = boxY + 20;
     this.resultsOverlay.addChild(title);
 
-    // Distance label
-    const distanceLabel = new Text({
-      text: 'DISTANCE TRAVELED',
+    // Walls passed label
+    const wallsLabel = new Text({
+      text: 'WALLS PASSED',
       style: terminalDimStyle,
     });
-    distanceLabel.anchor.set(0.5, 0);
-    distanceLabel.x = width / 2;
-    distanceLabel.y = boxY + 70;
-    this.resultsOverlay.addChild(distanceLabel);
+    wallsLabel.anchor.set(0.5, 0);
+    wallsLabel.x = width / 2;
+    wallsLabel.y = boxY + 70;
+    this.resultsOverlay.addChild(wallsLabel);
 
-    // Distance value
-    const distanceValue = new Text({
-      text: Math.floor(distance).toString(),
+    // Walls passed value
+    const wallsValue = new Text({
+      text: wallsPassed.toString(),
       style: scoreStyle,
     });
-    distanceValue.anchor.set(0.5, 0);
-    distanceValue.x = width / 2;
-    distanceValue.y = boxY + 95;
-    this.resultsOverlay.addChild(distanceValue);
+    wallsValue.anchor.set(0.5, 0);
+    wallsValue.x = width / 2;
+    wallsValue.y = boxY + 95;
+    this.resultsOverlay.addChild(wallsValue);
 
     // Money earned
     const moneyText = new Text({

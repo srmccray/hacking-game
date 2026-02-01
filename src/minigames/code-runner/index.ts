@@ -14,6 +14,7 @@ export {
   type Obstacle,
   type CodeRunnerState,
   type CodeRunnerEventType,
+  type DifficultyType,
 } from './CodeRunnerGame';
 
 export { createCodeRunnerScene } from './CodeRunnerScene';

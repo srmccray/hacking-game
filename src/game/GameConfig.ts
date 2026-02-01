@@ -115,8 +115,8 @@ export interface CodeRunnerConfig {
   gapWidth: number;
   /** Player hitbox dimensions for collision detection */
   playerHitboxSize: { width: number; height: number };
-  /** Money earned per 100 distance units traveled */
-  moneyPerDistance: number;
+  /** Money earned per wall passed */
+  moneyPerWall: number;
   /** Delay in milliseconds before the first obstacle spawns */
   initialObstacleDelay: number;
 }
@@ -239,7 +239,7 @@ export const DEFAULT_CONFIG: GameConfig = {
       obstacleSpawnRate: 1500, // spawn obstacle every 1.5 seconds
       gapWidth: 80, // minimum gap width in pixels
       playerHitboxSize: { width: 24, height: 32 },
-      moneyPerDistance: 10, // earn 10 money per 100 distance units
+      moneyPerWall: 10, // earn 10 money per wall passed
       initialObstacleDelay: 1000, // 1 second delay before first obstacle
     },
   },

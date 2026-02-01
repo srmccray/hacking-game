@@ -8,16 +8,17 @@
  * - Horizontal player movement (left/right)
  * - Obstacles spawning from top with randomized gaps
  * - AABB collision detection
- * - Distance-based scoring (further = more money)
+ * - Wall-pass scoring (walls passed = score)
+ * - Progressive difficulty (each wall increases one of three penalties)
  * - Configurable via GameConfig
  *
  * Game Rules:
  * - Player is positioned at the bottom of the screen
  * - Obstacles (horizontal bars with gaps) scroll down from the top
  * - Player must navigate through the gaps to survive
- * - Distance traveled increases over time based on scroll speed
+ * - Each wall passed increases score and applies a random difficulty penalty
  * - Game ends on collision with any obstacle
- * - Money reward is based on distance traveled
+ * - Money reward is based on walls passed
  *
  * Usage:
  *   const game = new CodeRunnerGame(config.minigames.codeRunner, canvasWidth, canvasHeight);
@@ -89,6 +90,12 @@ export type CodeRunnerEventType =
   | 'obstacle-passed'
   | 'collision';
 
+/**
+ * Difficulty penalty types applied when a wall is passed.
+ * Each wall randomly picks one of these three types.
+ */
+export type DifficultyType = 'spawn_rate' | 'gap_width' | 'player_speed';
+
 // ============================================================================
 // Code Runner Game Class
 // ============================================================================
@@ -141,6 +148,18 @@ export class CodeRunnerGame extends BaseMinigame {
 
   /** Counter for generating unique obstacle IDs */
   private _nextObstacleId: number = 0;
+
+  /** Number of walls the player has passed */
+  private _wallsPassed: number = 0;
+
+  /** Accumulated spawn rate penalty from difficulty scaling (ms) */
+  private _spawnRatePenalty: number = 0;
+
+  /** Accumulated gap width penalty from difficulty scaling (px) */
+  private _gapWidthPenalty: number = 0;
+
+  /** Accumulated player speed penalty from difficulty scaling (px/s) */
+  private _playerSpeedPenalty: number = 0;
 
   /** Bonus gap width from upgrades (in pixels) */
   private readonly _gapWidthBonus: number;
@@ -203,6 +222,11 @@ export class CodeRunnerGame extends BaseMinigame {
     return this._distance;
   }
 
+  /** Get the number of walls passed */
+  get wallsPassed(): number {
+    return this._wallsPassed;
+  }
+
   /** Get the player hitbox size */
   get playerSize(): { width: number; height: number } {
     return { ...this.config.playerHitboxSize };
@@ -225,6 +249,10 @@ export class CodeRunnerGame extends BaseMinigame {
     this._inputLeft = false;
     this._inputRight = false;
     this._nextObstacleId = 0;
+    this._wallsPassed = 0;
+    this._spawnRatePenalty = 0;
+    this._gapWidthPenalty = 0;
+    this._playerSpeedPenalty = 0;
   }
 
   protected onEnd(): void {
@@ -258,8 +286,8 @@ export class CodeRunnerGame extends BaseMinigame {
       this.end();
     }
 
-    // Update score based on distance (1 point per unit of distance)
-    this._score = Math.floor(this._distance);
+    // Score is based on walls passed
+    this._score = this._wallsPassed;
   }
 
   // ==========================================================================
@@ -301,13 +329,13 @@ export class CodeRunnerGame extends BaseMinigame {
   // ==========================================================================
 
   /**
-   * Calculate the money reward based on distance traveled.
-   * Formula: distance / 100 * moneyPerDistance
+   * Calculate the money reward based on walls passed.
+   * Formula: wallsPassed * moneyPerWall
    *
    * @returns Money as a string (for Decimal compatibility)
    */
   calculateMoneyReward(): string {
-    const money = Math.floor((this._distance / 100) * this.config.moneyPerDistance);
+    const money = this._wallsPassed * this.config.moneyPerWall;
     return String(money);
   }
 
@@ -328,9 +356,10 @@ export class CodeRunnerGame extends BaseMinigame {
       moveDir += 1;
     }
 
-    // Apply movement
+    // Apply movement (subtract difficulty penalty, clamp floor 80px/s)
     if (moveDir !== 0) {
-      this._playerX += moveDir * (this.config.playerSpeed + this._moveSpeedBonus) * deltaSec;
+      const effectiveSpeed = Math.max(80, this.config.playerSpeed + this._moveSpeedBonus - this._playerSpeedPenalty);
+      this._playerX += moveDir * effectiveSpeed * deltaSec;
 
       // Clamp to screen bounds (accounting for player width)
       const halfWidth = this.config.playerHitboxSize.width / 2;
@@ -353,9 +382,18 @@ export class CodeRunnerGame extends BaseMinigame {
       // Mark obstacles that have passed the player (below screen)
       if (!obstacle.passed && obstacle.y > this.canvasHeight) {
         obstacle.passed = true;
+        this._wallsPassed++;
+
+        // Apply random difficulty penalty
+        const difficultyType = this.applyDifficultyPenalty();
+
         this.emit('obstacle-passed' as MinigameEventType, {
           minigameId: this.id,
-          data: { distance: this._distance },
+          data: {
+            distance: this._distance,
+            wallsPassed: this._wallsPassed,
+            difficultyType,
+          },
         });
       }
     }
@@ -366,12 +404,12 @@ export class CodeRunnerGame extends BaseMinigame {
     // Handle obstacle spawning with initial delay
     this._spawnTimer += deltaMs;
 
-    // Calculate effective spawn rate including wall spacing bonus
+    // Calculate effective spawn rate including wall spacing bonus and difficulty penalty
     // Bonus is in pixels; convert to milliseconds: bonusMs = bonusPx / scrollSpeed * 1000
     const spacingBonusMs = this._wallSpacingBonus > 0
       ? (this._wallSpacingBonus / this.config.scrollSpeed) * 1000
       : 0;
-    const effectiveSpawnRate = this.config.obstacleSpawnRate + spacingBonusMs;
+    const effectiveSpawnRate = Math.max(400, this.config.obstacleSpawnRate + spacingBonusMs - this._spawnRatePenalty);
 
     if (!this._initialDelayPassed) {
       if (this._spawnTimer >= this.config.initialObstacleDelay) {
@@ -393,7 +431,7 @@ export class CodeRunnerGame extends BaseMinigame {
     // Calculate gap position - ensure gap is at least gapWidth and has margins from edges
     const minGapStart = 40; // Minimum margin from left edge
     const maxGapEnd = this.canvasWidth - 40; // Minimum margin from right edge
-    const gapWidth = this.config.gapWidth + this._gapWidthBonus;
+    const gapWidth = Math.max(30, this.config.gapWidth + this._gapWidthBonus - this._gapWidthPenalty);
 
     // Random gap start position
     const gapStart = minGapStart + Math.random() * (maxGapEnd - gapWidth - minGapStart);
@@ -419,6 +457,35 @@ export class CodeRunnerGame extends BaseMinigame {
         gapWidth,
       },
     });
+  }
+
+  // ==========================================================================
+  // Private Methods - Difficulty Scaling
+  // ==========================================================================
+
+  /**
+   * Apply a random difficulty penalty when a wall is passed.
+   * Randomly picks one of three penalty types and increments it.
+   *
+   * @returns The difficulty type that was applied
+   */
+  private applyDifficultyPenalty(): DifficultyType {
+    const types: DifficultyType[] = ['spawn_rate', 'gap_width', 'player_speed'];
+    const chosen = types[Math.floor(Math.random() * types.length)]!;
+
+    switch (chosen) {
+      case 'spawn_rate':
+        this._spawnRatePenalty += 50; // ms
+        break;
+      case 'gap_width':
+        this._gapWidthPenalty += 3; // px
+        break;
+      case 'player_speed':
+        this._playerSpeedPenalty += 5; // px/s
+        break;
+    }
+
+    return chosen;
   }
 
   // ==========================================================================
@@ -515,6 +582,10 @@ export class CodeRunnerGame extends BaseMinigame {
     this._inputLeft = false;
     this._inputRight = false;
     this._nextObstacleId = 0;
+    this._wallsPassed = 0;
+    this._spawnRatePenalty = 0;
+    this._gapWidthPenalty = 0;
+    this._playerSpeedPenalty = 0;
   }
 
   // ==========================================================================
@@ -529,16 +600,16 @@ export class CodeRunnerGame extends BaseMinigame {
   }
 
   /**
-   * Calculate expected money for a given distance.
+   * Calculate expected money for a given number of walls passed.
    *
-   * @param distance - The distance traveled
+   * @param wallsPassed - The number of walls passed
    * @param config - Optional config (uses default if not provided)
    * @returns Money as string
    */
-  static calculateReward(distance: number, config?: CodeRunnerConfig): string {
-    const moneyPerDistance =
-      config?.moneyPerDistance ?? DEFAULT_CONFIG.minigames.codeRunner.moneyPerDistance;
-    return String(Math.floor((distance / 100) * moneyPerDistance));
+  static calculateReward(wallsPassed: number, config?: CodeRunnerConfig): string {
+    const moneyPerWall =
+      config?.moneyPerWall ?? DEFAULT_CONFIG.minigames.codeRunner.moneyPerWall;
+    return String(wallsPassed * moneyPerWall);
   }
 }
 
