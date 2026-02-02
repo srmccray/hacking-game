@@ -51,6 +51,47 @@ import {
 // Configuration
 // ============================================================================
 
+/** Car configuration for animated street traffic */
+interface CarConfig {
+  /** Current X position */
+  x: number;
+  /** Y position on the road */
+  y: number;
+  /** Horizontal speed in pixels per second (negative = leftward) */
+  speed: number;
+  /** Body color */
+  color: number;
+  /** The Graphics object for this car */
+  graphics: Graphics;
+}
+
+/** Traffic animation settings */
+const CAR_CONFIG = {
+  /** Y positions for cars going right (above center line) */
+  rightLaneY: 520,
+  /** Y positions for cars going left (below center line) */
+  leftLaneY: 560,
+  /** Minimum speed in px/s */
+  minSpeed: 60,
+  /** Maximum speed in px/s */
+  maxSpeed: 140,
+  /** Left spawn/despawn boundary */
+  leftEdge: -60,
+  /** Right spawn/despawn boundary */
+  rightEdge: 860,
+  /** Minimum interval between spawns (ms) */
+  minSpawnInterval: 1500,
+  /** Maximum interval between spawns (ms) */
+  maxSpawnInterval: 4000,
+  /** Car body width */
+  carWidth: 40,
+  /** Car body height */
+  carHeight: 12,
+};
+
+/** Car body color palette */
+const CAR_COLORS = [0xcc2222, 0xdddddd, 0x4444cc, 0x888888, 0x22aa44];
+
 /** Town scene layout configuration */
 const TOWN_CONFIG = {
   /** Left boundary for player movement */
@@ -256,6 +297,15 @@ class TownScene implements Scene {
   /** All Coming Soon overlays, keyed by store name */
   private readonly overlays: Map<string, Container> = new Map();
 
+  /** Active animated cars on the road */
+  private readonly cars: CarConfig[] = [];
+
+  /** Container for car graphics (layered below player, above street) */
+  private carContainer: Container | null = null;
+
+  /** Time accumulator for next car spawn (ms) */
+  private nextCarSpawn = 0;
+
   constructor(game: Game) {
     this.game = game;
     this.container = new Container();
@@ -282,6 +332,14 @@ class TownScene implements Scene {
 
     // Create stations
     this.createStations();
+
+    // Create car container (above street, below player)
+    this.carContainer = new Container();
+    this.carContainer.label = 'car-container';
+    this.container.addChild(this.carContainer);
+
+    // Schedule first car spawn soon
+    this.nextCarSpawn = 500;
 
     // Create player
     this.createPlayer();
@@ -339,6 +397,9 @@ class TownScene implements Scene {
       }
     }
 
+    // Update animated cars
+    this.updateCars(deltaMs);
+
     // Update which station the player is near
     const playerRect = this.player.getBoundingBox();
     const interactionRect: BoundingBox = {
@@ -375,6 +436,13 @@ class TownScene implements Scene {
 
     // Destroy station manager
     this.stationManager.destroy();
+
+    // Destroy cars
+    for (const car of this.cars) {
+      car.graphics.destroy();
+    }
+    this.cars.length = 0;
+    this.carContainer = null;
 
     // Clear overlays map
     this.overlays.clear();
@@ -547,6 +615,133 @@ class TownScene implements Scene {
         this.game.inputManager.disableContext(this.dialogContext.id);
       }
     }
+  }
+
+  // ==========================================================================
+  // Animated Cars
+  // ==========================================================================
+
+  /**
+   * Update all animated cars: move existing cars, despawn off-screen cars,
+   * and spawn new ones on a timer.
+   */
+  private updateCars(deltaMs: number): void {
+    const deltaSec = deltaMs / 1000;
+
+    // Move existing cars and remove those that have left the screen
+    for (let i = this.cars.length - 1; i >= 0; i--) {
+      const car = this.cars[i]!;
+      car.x += car.speed * deltaSec;
+      car.graphics.x = car.x;
+
+      // Despawn if off-screen
+      const offRight = car.speed > 0 && car.x > CAR_CONFIG.rightEdge;
+      const offLeft = car.speed < 0 && car.x < CAR_CONFIG.leftEdge;
+      if (offRight || offLeft) {
+        car.graphics.destroy();
+        this.cars.splice(i, 1);
+      }
+    }
+
+    // Spawn timer
+    this.nextCarSpawn -= deltaMs;
+    if (this.nextCarSpawn <= 0) {
+      this.spawnCar();
+      // Schedule next spawn
+      this.nextCarSpawn =
+        CAR_CONFIG.minSpawnInterval +
+        Math.random() * (CAR_CONFIG.maxSpawnInterval - CAR_CONFIG.minSpawnInterval);
+    }
+  }
+
+  /**
+   * Spawn a new car at one edge of the screen, traveling across.
+   */
+  private spawnCar(): void {
+    if (!this.carContainer) return;
+
+    // Randomly pick direction
+    const goingRight = Math.random() < 0.5;
+    const y = goingRight ? CAR_CONFIG.rightLaneY : CAR_CONFIG.leftLaneY;
+    // Add slight Y variation so cars don't stack perfectly
+    const yOffset = (Math.random() - 0.5) * 6;
+
+    const speed =
+      CAR_CONFIG.minSpeed + Math.random() * (CAR_CONFIG.maxSpeed - CAR_CONFIG.minSpeed);
+
+    const startX = goingRight ? CAR_CONFIG.leftEdge : CAR_CONFIG.rightEdge;
+
+    const color = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)]!;
+
+    const graphics = this.createCarGraphics(color, goingRight);
+    graphics.x = startX;
+    graphics.y = y + yOffset;
+    this.carContainer.addChild(graphics);
+
+    this.cars.push({
+      x: startX,
+      y: y + yOffset,
+      speed: goingRight ? speed : -speed,
+      color,
+      graphics,
+    });
+  }
+
+  /**
+   * Create the Graphics object for a single car.
+   * A simple rectangle body with a smaller roof rectangle and headlight dots.
+   */
+  private createCarGraphics(color: number, goingRight: boolean): Graphics {
+    const g = new Graphics();
+    const w = CAR_CONFIG.carWidth;
+    const h = CAR_CONFIG.carHeight;
+
+    // Car body
+    g.fill({ color, alpha: 0.85 });
+    g.roundRect(0, 0, w, h, 2);
+    g.fill();
+
+    // Roof / cabin (smaller rectangle on top)
+    g.fill({ color, alpha: 0.6 });
+    g.roundRect(w * 0.25, -4, w * 0.45, 5, 1);
+    g.fill();
+
+    // Windshield tint on roof
+    g.fill({ color: 0x88bbff, alpha: 0.3 });
+    if (goingRight) {
+      g.roundRect(w * 0.5, -3, w * 0.18, 3, 1);
+    } else {
+      g.roundRect(w * 0.27, -3, w * 0.18, 3, 1);
+    }
+    g.fill();
+
+    // Headlights (front of the car)
+    const headlightColor = 0xffffaa;
+    g.fill({ color: headlightColor, alpha: 0.9 });
+    if (goingRight) {
+      // Headlights on right side
+      g.circle(w - 1, 3, 2);
+      g.circle(w - 1, h - 3, 2);
+    } else {
+      // Headlights on left side
+      g.circle(1, 3, 2);
+      g.circle(1, h - 3, 2);
+    }
+    g.fill();
+
+    // Tail lights (back of the car)
+    const tailColor = 0xff2222;
+    g.fill({ color: tailColor, alpha: 0.7 });
+    if (goingRight) {
+      g.circle(1, 3, 1.5);
+      g.circle(1, h - 3, 1.5);
+    } else {
+      g.circle(w - 1, 3, 1.5);
+      g.circle(w - 1, h - 3, 1.5);
+    }
+    g.fill();
+
+    return g;
   }
 
   // ==========================================================================

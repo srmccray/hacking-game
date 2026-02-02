@@ -4,7 +4,7 @@
  * Provides pause menu functionality during gameplay, allowing players to:
  * - Resume the game
  * - Save the game
- * - Access settings (placeholder)
+ * - Access settings (Test Mode, Offline Progress)
  * - Return to main menu
  *
  * Features:
@@ -72,7 +72,7 @@ interface MenuItem {
 /**
  * Menu state.
  */
-type MenuState = 'main' | 'confirm-exit';
+type MenuState = 'main' | 'confirm-exit' | 'settings';
 
 // ============================================================================
 // InGameMenu Class
@@ -121,6 +121,15 @@ export class InGameMenu {
   /** Confirm dialog text elements */
   private confirmTexts: Text[] = [];
 
+  /** Settings submenu container */
+  private settingsContainer: Container | null = null;
+
+  /** Settings submenu selected index */
+  private settingsSelectedIndex = 0;
+
+  /** Settings item text elements */
+  private settingsTexts: Text[] = [];
+
   /**
    * Create a new InGameMenu.
    *
@@ -161,7 +170,7 @@ export class InGameMenu {
       {
         id: 'settings',
         label: 'Settings',
-        enabled: false, // Placeholder for future
+        enabled: true,
         action: () => this.handleSettings(),
       },
       {
@@ -194,6 +203,8 @@ export class InGameMenu {
     this.menuTexts = [];
     this.confirmTexts = [];
     this.confirmContainer = null;
+    this.settingsTexts = [];
+    this.settingsContainer = null;
 
     // Create menu UI
     this.createMenu();
@@ -241,6 +252,8 @@ export class InGameMenu {
     this.menuTexts = [];
     this.confirmTexts = [];
     this.confirmContainer = null;
+    this.settingsTexts = [];
+    this.settingsContainer = null;
 
     console.log('[InGameMenu] Hidden');
   }
@@ -404,6 +417,9 @@ export class InGameMenu {
 
     // Create confirm dialog (hidden by default)
     this.createConfirmDialog();
+
+    // Create settings submenu (hidden by default)
+    this.createSettingsSubmenu();
   }
 
   /**
@@ -574,6 +590,227 @@ export class InGameMenu {
     this.confirmContainer.addChild(hint);
   }
 
+  /**
+   * Create the settings submenu (hidden by default).
+   */
+  private createSettingsSubmenu(): void {
+    const width = this.game.config.canvas.width;
+    const height = this.game.config.canvas.height;
+
+    this.settingsContainer = new Container();
+    this.settingsContainer.label = 'settings-submenu';
+    this.settingsContainer.visible = false;
+    this.settingsContainer.zIndex = 150;
+    this.container.addChild(this.settingsContainer);
+
+    // Overlay to block main menu interaction
+    const overlay = new Graphics();
+    overlay.fill({ color: 0x000000, alpha: 0.5 });
+    overlay.rect(0, 0, width, height);
+    overlay.fill();
+    overlay.eventMode = 'static';
+    this.settingsContainer.addChild(overlay);
+
+    // Dialog box
+    const boxWidth = 360;
+    const boxHeight = 200;
+    const boxX = (width - boxWidth) / 2;
+    const boxY = (height - boxHeight) / 2;
+
+    const box = new Graphics();
+    box.fill({ color: 0x0a0a0a, alpha: 0.98 });
+    box.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+    box.fill();
+    box.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
+    box.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+    box.stroke();
+    box.stroke({ color: COLORS.TERMINAL_GREEN, width: 1 });
+    box.roundRect(boxX + 4, boxY + 4, boxWidth - 8, boxHeight - 8, 2);
+    box.stroke();
+    box.eventMode = 'static';
+    this.settingsContainer.addChild(box);
+
+    // Title
+    const dialogTitleStyle = new TextStyle({
+      fontFamily: FONT_FAMILY,
+      fontSize: 20,
+      fill: COLORS.TERMINAL_GREEN,
+      fontWeight: 'bold',
+      dropShadow: {
+        alpha: 0.7,
+        blur: 4,
+        color: COLORS.TERMINAL_BRIGHT,
+        distance: 0,
+      },
+    });
+    const title = new Text({
+      text: 'SETTINGS',
+      style: dialogTitleStyle,
+    });
+    title.anchor.set(0.5, 0);
+    title.x = width / 2;
+    title.y = boxY + 16;
+    this.settingsContainer.addChild(title);
+
+    // Divider below title
+    const divider = new Graphics();
+    const dividerY = boxY + 48;
+    divider.stroke({ color: COLORS.TERMINAL_DIM, width: 1, alpha: 0.6 });
+    divider.moveTo(boxX + 20, dividerY);
+    divider.lineTo(boxX + boxWidth - 20, dividerY);
+    divider.stroke();
+    this.settingsContainer.addChild(divider);
+
+    // Settings items
+    const settingsStartY = boxY + 60;
+    const itemHeight = 36;
+
+    // Test Mode toggle
+    const testModeText = new Text({
+      text: this.getSettingsItemLabel(0),
+      style: terminalBrightStyle,
+    });
+    testModeText.anchor.set(0.5, 0);
+    testModeText.x = width / 2;
+    testModeText.y = settingsStartY;
+    testModeText.eventMode = 'static';
+    testModeText.cursor = 'pointer';
+    testModeText.on('pointerdown', () => {
+      this.settingsSelectedIndex = 0;
+      this.toggleSettingsItem(0);
+    });
+    testModeText.on('pointerover', () => {
+      if (this.settingsSelectedIndex !== 0) {
+        this.settingsSelectedIndex = 0;
+        this.updateSettingsSelection();
+      }
+    });
+    this.settingsContainer.addChild(testModeText);
+    this.settingsTexts.push(testModeText);
+
+    // Offline Progress toggle
+    const offlineText = new Text({
+      text: this.getSettingsItemLabel(1),
+      style: terminalStyle,
+    });
+    offlineText.anchor.set(0.5, 0);
+    offlineText.x = width / 2;
+    offlineText.y = settingsStartY + itemHeight;
+    offlineText.eventMode = 'static';
+    offlineText.cursor = 'pointer';
+    offlineText.on('pointerdown', () => {
+      this.settingsSelectedIndex = 1;
+      this.toggleSettingsItem(1);
+    });
+    offlineText.on('pointerover', () => {
+      if (this.settingsSelectedIndex !== 1) {
+        this.settingsSelectedIndex = 1;
+        this.updateSettingsSelection();
+      }
+    });
+    this.settingsContainer.addChild(offlineText);
+    this.settingsTexts.push(offlineText);
+
+    // Back item
+    const backText = new Text({
+      text: '  [ Back ]',
+      style: terminalStyle,
+    });
+    backText.anchor.set(0.5, 0);
+    backText.x = width / 2;
+    backText.y = settingsStartY + itemHeight * 2;
+    backText.eventMode = 'static';
+    backText.cursor = 'pointer';
+    backText.on('pointerdown', () => {
+      this.settingsSelectedIndex = 2;
+      this.closeSettings();
+    });
+    backText.on('pointerover', () => {
+      if (this.settingsSelectedIndex !== 2) {
+        this.settingsSelectedIndex = 2;
+        this.updateSettingsSelection();
+      }
+    });
+    this.settingsContainer.addChild(backText);
+    this.settingsTexts.push(backText);
+
+    // Hint
+    const hint = new Text({
+      text: 'Esc: Back  |  Arrows / Enter',
+      style: terminalSmallStyle,
+    });
+    hint.anchor.set(0.5, 0);
+    hint.x = width / 2;
+    hint.y = boxY + boxHeight - 25;
+    this.settingsContainer.addChild(hint);
+  }
+
+  /**
+   * Get the label for a settings item by index, including current state.
+   */
+  private getSettingsItemLabel(index: number, isSelected = false): string {
+    const prefix = isSelected ? '> ' : '  ';
+    const state = this.game.store.getState();
+
+    switch (index) {
+      case 0: {
+        const testModeOn = state.settings.testMode;
+        return prefix + 'Test Mode: ' + (testModeOn ? '[ON]' : '[OFF]');
+      }
+      case 1: {
+        const offlineOn = state.settings.offlineProgressEnabled;
+        return prefix + 'Offline Progress: ' + (offlineOn ? '[ON]' : '[OFF]');
+      }
+      case 2:
+        return prefix + '[ Back ]';
+      default:
+        return '';
+    }
+  }
+
+  /**
+   * Toggle a settings item by index.
+   */
+  private toggleSettingsItem(index: number): void {
+    const actions = this.game.store.getState();
+
+    switch (index) {
+      case 0:
+        actions.toggleTestMode();
+        break;
+      case 1:
+        actions.toggleOfflineProgress();
+        break;
+    }
+
+    this.updateSettingsSelection();
+  }
+
+  /**
+   * Update settings submenu selection visuals.
+   */
+  private updateSettingsSelection(): void {
+    const itemCount = this.settingsTexts.length;
+    for (let i = 0; i < itemCount; i++) {
+      const text = this.settingsTexts[i];
+      if (!text) {continue;}
+
+      const isSelected = i === this.settingsSelectedIndex;
+      text.text = this.getSettingsItemLabel(i, isSelected);
+      text.style = isSelected ? terminalBrightStyle : terminalStyle;
+    }
+  }
+
+  /**
+   * Close the settings submenu and return to main menu.
+   */
+  private closeSettings(): void {
+    this.menuState = 'main';
+    if (this.settingsContainer) {
+      this.settingsContainer.visible = false;
+    }
+  }
+
   // ==========================================================================
   // UI Updates
   // ==========================================================================
@@ -707,6 +944,10 @@ export class InGameMenu {
     if (this.menuState === 'main') {
       this.selectedIndex = (this.selectedIndex - 1 + this.menuItems.length) % this.menuItems.length;
       this.updateMenuSelection();
+    } else if (this.menuState === 'settings') {
+      const itemCount = this.settingsTexts.length;
+      this.settingsSelectedIndex = (this.settingsSelectedIndex - 1 + itemCount) % itemCount;
+      this.updateSettingsSelection();
     }
   }
 
@@ -717,6 +958,10 @@ export class InGameMenu {
     if (this.menuState === 'main') {
       this.selectedIndex = (this.selectedIndex + 1) % this.menuItems.length;
       this.updateMenuSelection();
+    } else if (this.menuState === 'settings') {
+      const itemCount = this.settingsTexts.length;
+      this.settingsSelectedIndex = (this.settingsSelectedIndex + 1) % itemCount;
+      this.updateSettingsSelection();
     }
   }
 
@@ -752,6 +997,13 @@ export class InGameMenu {
       } else {
         this.cancelConfirm();
       }
+    } else if (this.menuState === 'settings') {
+      if (this.settingsSelectedIndex === 2) {
+        // Back
+        this.closeSettings();
+      } else {
+        this.toggleSettingsItem(this.settingsSelectedIndex);
+      }
     }
   }
 
@@ -761,6 +1013,8 @@ export class InGameMenu {
   private handleEscape(): void {
     if (this.menuState === 'confirm-exit') {
       this.cancelConfirm();
+    } else if (this.menuState === 'settings') {
+      this.closeSettings();
     } else {
       this.hide();
     }
@@ -822,11 +1076,18 @@ export class InGameMenu {
   }
 
   /**
-   * Handle Settings action (placeholder).
+   * Handle Settings action - show the settings submenu.
    */
   private handleSettings(): void {
-    console.log('[InGameMenu] Settings selected (Coming Soon)');
-    this.showFeedback('Coming Soon...');
+    console.log('[InGameMenu] Settings selected');
+    this.menuState = 'settings';
+    this.settingsSelectedIndex = 0;
+
+    if (this.settingsContainer) {
+      this.settingsContainer.visible = true;
+    }
+
+    this.updateSettingsSelection();
   }
 
   /**

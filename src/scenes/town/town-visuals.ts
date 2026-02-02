@@ -41,8 +41,8 @@ const DETAIL_DIM = 0x333355;
 /** Street line Y position (curb between buildings and walkway) */
 export const STREET_LINE_Y = 300;
 
-/** Building top Y position */
-const BUILDING_TOP_Y = 60;
+/** Default building top Y position (used for skyline silhouettes) */
+const BUILDING_TOP_Y = 30;
 
 // ============================================================================
 // Building Configuration
@@ -55,91 +55,114 @@ interface BuildingConfig {
   neonColor: number;
   ascii: string[];
   signText: string;
+  /** Y position of the building top (lower value = taller building) */
+  topY: number;
+  /** Number of ASCII lines that form the neon sign (default 4) */
+  signLines: number;
 }
 
 const BUILDINGS: BuildingConfig[] = [
+  // Bio-Forge: Tallest building (3 floors), narrow slit windows, heavy sliding door
   {
     x: 30,
     width: 170,
     name: 'bio-forge',
     neonColor: NEON_COLORS.BIO_FORGE,
     signText: 'BIO-FORGE',
+    topY: 30,
+    signLines: 4,
     ascii: [
       '  ╔═══════════════╗  ',
       '  ║ BIO-FORGE     ║  ',
       '  ║  CYBERNETICS  ║  ',
       '  ╚═══════════════╝  ',
-      '  ┌───────────────┐  ',
-      '  │ ▪ ▪   ▪ ▪ ▪  │  ',
-      '  │               │  ',
-      '  │ ▪ ▪   ▪ ▪ ▪  │  ',
-      '  │    ╔═══╗      │  ',
-      '  │    ║   ║      │  ',
-      '  │    ║   ║      │  ',
-      '  └────╨───╨──────┘  ',
+      '  ┌─┬───────────┬─┐  ',
+      '  │▐│ ░ ░   ░ ░ │▐│  ',
+      '  │▐│           │▐│  ',
+      '  │▐│ ░ ░   ░ ░ │▐│  ',
+      '  ├─┼───────────┼─┤  ',
+      '  │▐│ ░     ░   │▐│  ',
+      '  │▐│           │▐│  ',
+      '  │▐│ ░     ░   │▐│  ',
+      '  ├─┼───────────┼─┤  ',
+      '  │▐│   ╔═══╗   │▐│  ',
+      '  │▐│   ║ + ║   │▐│  ',
+      '  │▐│   ║   ║   │▐│  ',
+      '  └─┴───╨───╨───┴─┘  ',
     ],
   },
+  // Chip Shop: Medium height, storefront display window, roll-up garage door
   {
     x: 215,
     width: 170,
     name: 'chip-shop',
     neonColor: NEON_COLORS.CHIP_SHOP,
     signText: 'CHIP SHOP',
+    topY: 75,
+    signLines: 4,
     ascii: [
       '  ╔═══════════════╗  ',
       '  ║  CHIP  SHOP   ║  ',
       '  ║   HARDWARE    ║  ',
       '  ╚═══════════════╝  ',
-      '  ┌───────────────┐  ',
-      '  │ □ □ □   □ □ □ │  ',
-      '  │               │  ',
-      '  │ □ □ □   □ □ □ │  ',
-      '  │    ┌─────┐    │  ',
-      '  │    │     │    │  ',
-      '  │    │     │    │  ',
-      '  └────┴─────┴────┘  ',
+      '  ╒═════════════════╕ ',
+      '  │ ┌─────┐ ┌─────┐│ ',
+      '  │ │█ ▓ █│ │▓ █ ▓││ ',
+      '  │ │  ▓  │ │  █  ││ ',
+      '  │ └─────┘ └─────┘│ ',
+      '  │  ┌───══───┐    │ ',
+      '  │  │≡≡≡≡≡≡≡≡│    │ ',
+      '  │  │        │    │ ',
+      '  ╘══┷════════┷════╛ ',
     ],
   },
+  // Neon Drip Cafe: Shortest building, wide cafe windows with awning, open doorway
   {
     x: 400,
     width: 170,
     name: 'neon-drip',
     neonColor: NEON_COLORS.NEON_DRIP,
     signText: 'NEON DRIP',
+    topY: 100,
+    signLines: 4,
     ascii: [
       '  ╔═══════════════╗  ',
       '  ║  NEON  DRIP   ║  ',
       '  ║    CAFE       ║  ',
       '  ╚═══════════════╝  ',
-      '  ┌───────────────┐  ',
-      '  │ ▪   ▪   ▪   ▪│  ',
-      '  │               │  ',
-      '  │ ▪   ▪   ▪   ▪│  ',
-      '  │    ┌─────┐    │  ',
-      '  │    │ ~~~ │    │  ',
-      '  │    │     │    │  ',
-      '  └────┴─────┴────┘  ',
+      '  /\\/\\/\\/\\/\\/\\/\\/\\  ',
+      '  ┌────────────────┐ ',
+      '  │▓▓▓▓│    │▓▓▓▓▓│ ',
+      '  │▓  ▓│    │▓ ☕ ▓│ ',
+      '  │▓▓▓▓│    │▓▓▓▓▓│ ',
+      '  └────┘    └─────┘ ',
     ],
   },
+  // Apartment: Medium-tall, residential style with fire escape, buzzer panel, narrow door
   {
     x: 585,
     width: 170,
     name: 'apartment',
     neonColor: NEON_COLORS.APARTMENT,
     signText: 'YOUR APT',
+    topY: 50,
+    signLines: 4,
     ascii: [
       '  ╔═══════════════╗  ',
       '  ║  YOUR  APT    ║  ',
       '  ║   ENTRANCE    ║  ',
       '  ╚═══════════════╝  ',
       '  ┌───────────────┐  ',
-      '  │ □     │ □     │  ',
+      '  │ □     │     □ │  ',
       '  │       │       │  ',
-      '  │ □     │ □     │  ',
-      '  │    ┌─────┐    │  ',
-      '  │    │  @  │    │  ',
-      '  │    │     │    │  ',
-      '  └────┴─────┴────┘  ',
+      '  ├───────┼───────┤  ',
+      '  │ □     │     □ │  ',
+      '  │       │       │  ',
+      '  ├───────┼───────┤  ',
+      '  │ [▪]  ┌──┐    │  ',
+      '  │ [▪]  │@ │    │  ',
+      '  │      │  │    │  ',
+      '  └──────┴──┴────┘  ',
     ],
   },
 ];
@@ -241,17 +264,28 @@ function createBuildingFacade(config: BuildingConfig): Container {
   const container = new Container();
   container.label = `building-${config.name}`;
 
+  const topY = config.topY;
+
   // Building background rectangle
   const buildingBg = new Graphics();
   buildingBg.fill({ color: BUILDING_COLOR, alpha: 0.9 });
-  buildingBg.rect(config.x, BUILDING_TOP_Y, config.width, STREET_LINE_Y - BUILDING_TOP_Y);
+  buildingBg.rect(config.x, topY, config.width, STREET_LINE_Y - topY);
   buildingBg.fill();
 
   // Building outline
   buildingBg.stroke({ color: DETAIL_DIM, width: 1, alpha: 0.6 });
-  buildingBg.rect(config.x, BUILDING_TOP_Y, config.width, STREET_LINE_Y - BUILDING_TOP_Y);
+  buildingBg.rect(config.x, topY, config.width, STREET_LINE_Y - topY);
   buildingBg.stroke();
   container.addChild(buildingBg);
+
+  // Roof line decoration (varies per building height)
+  const roofDecor = new Graphics();
+  roofDecor.stroke({ color: DETAIL_DIM, width: 1, alpha: 0.5 });
+  // Double line at roof
+  roofDecor.moveTo(config.x, topY + 2);
+  roofDecor.lineTo(config.x + config.width, topY + 2);
+  roofDecor.stroke();
+  container.addChild(roofDecor);
 
   // ASCII art for the building
   const asciiContainer = createBuildingAscii(config);
@@ -260,7 +294,7 @@ function createBuildingFacade(config: BuildingConfig): Container {
   // Neon sign glow effect (soft glow behind the sign area)
   const glow = new Graphics();
   glow.fill({ color: config.neonColor, alpha: 0.06 });
-  glow.rect(config.x + 10, BUILDING_TOP_Y + 5, config.width - 20, 55);
+  glow.rect(config.x + 10, topY + 5, config.width - 20, 55);
   glow.fill();
   container.addChild(glow);
 
@@ -273,13 +307,13 @@ function createBuildingFacade(config: BuildingConfig): Container {
 function createBuildingAscii(config: BuildingConfig): Container {
   const container = new Container();
   const lineHeight = 16;
-  const startY = BUILDING_TOP_Y + 10;
+  const startY = config.topY + 10;
   const centerX = config.x + config.width / 2;
 
   for (let i = 0; i < config.ascii.length; i++) {
     const line = config.ascii[i]!;
-    // First 4 lines are the neon sign area - use neon color
-    const isSign = i < 4;
+    // Sign lines use neon color, rest use dim detail color
+    const isSign = i < config.signLines;
     const color = isSign ? config.neonColor : DETAIL_DIM;
     const glowAlpha = isSign ? 0.8 : 0.3;
 
@@ -380,28 +414,30 @@ function createStreetSurface(width: number, height: number): Container {
 /**
  * Create cables/wires running between buildings.
  */
-function createCables(width: number): Container {
+function createCables(_width: number): Container {
   const container = new Container();
   const graphics = new Graphics();
 
-  // Horizontal cable across building tops
-  graphics.stroke({ color: DETAIL_DIM, width: 1, alpha: 0.4 });
-  graphics.moveTo(30, BUILDING_TOP_Y + 5);
-  graphics.lineTo(width - 30, BUILDING_TOP_Y + 5);
-  graphics.stroke();
-
-  // Sagging cables between buildings
-  const cablePoints = [
-    { x1: 180, x2: 235, sagY: 8 },
-    { x1: 365, x2: 420, sagY: 6 },
-    { x1: 550, x2: 605, sagY: 7 },
+  // Sagging cables between adjacent buildings, connecting at each building's top
+  const cableConnections = [
+    { fromIdx: 0, toIdx: 1 },
+    { fromIdx: 1, toIdx: 2 },
+    { fromIdx: 2, toIdx: 3 },
   ];
 
-  for (const cable of cablePoints) {
+  for (const conn of cableConnections) {
+    const fromB = BUILDINGS[conn.fromIdx]!;
+    const toB = BUILDINGS[conn.toIdx]!;
+    const x1 = fromB.x + fromB.width - 5;
+    const x2 = toB.x + 5;
+    const y1 = fromB.topY + 15;
+    const y2 = toB.topY + 15;
+    const midX = (x1 + x2) / 2;
+    const sagY = Math.max(y1, y2) + 12;
+
     graphics.stroke({ color: DETAIL_DIM, width: 1, alpha: 0.3 });
-    const midX = (cable.x1 + cable.x2) / 2;
-    graphics.moveTo(cable.x1, BUILDING_TOP_Y + 20);
-    graphics.quadraticCurveTo(midX, BUILDING_TOP_Y + 20 + cable.sagY, cable.x2, BUILDING_TOP_Y + 20);
+    graphics.moveTo(x1, y1);
+    graphics.quadraticCurveTo(midX, sagY, x2, y2);
     graphics.stroke();
   }
 
