@@ -64,7 +64,8 @@ export type MinigameEffectType =
   | 'time_bonus' // Adds bonus time to Code Breaker per-code timer
   | 'code_length_reduction' // Reduces starting code length in Code Breaker
   | 'damage_multiplier_bonus' // Adds damage multiplier bonus for Botnet Defense
-  | 'health_bonus'; // Adds extra HP for Botnet Defense
+  | 'health_bonus' // Adds extra HP for Botnet Defense
+  | 'auto_play_level'; // Unlocks and improves AI auto-play for a minigame
 
 /**
  * Hardware upgrade effect types (requires dual currency)
@@ -425,6 +426,70 @@ const redundantSystemsUpgrade: MinigameUpgrade = {
   effectPerLevel: 1, // +1 HP per level
 };
 
+// ----------------------------------------------------------------------------
+// Auto-Play Upgrades (all minigames)
+// ----------------------------------------------------------------------------
+
+/**
+ * Auto-Play: Code Breaker (Minigame - Code Breaker)
+ * Unlocks and improves AI auto-play for Code Breaker.
+ * Cost: 500 TP base, +750 TP per level (500, 1250, 2000, 2750, 3500)
+ */
+const autoPlayCodeBreakerUpgrade: MinigameUpgrade = {
+  id: 'auto-play-code-breaker',
+  name: 'AI Auto-Play',
+  description: 'Unlocks and improves AI auto-play for Code Breaker',
+  category: 'minigame',
+  minigameId: 'code-breaker',
+  costResource: 'technique',
+  baseCost: '500',
+  maxLevel: 5,
+  costIncrement: '750', // 500, 1250, 2000, 2750, 3500
+  effectType: 'auto_play_level',
+  baseEffect: 1, // Level 1 at first purchase
+  effectPerLevel: 1, // +1 per level
+};
+
+/**
+ * Auto-Play: Code Runner (Minigame - Code Runner)
+ * Unlocks and improves AI auto-play for Code Runner.
+ * Cost: 500 TP base, +750 TP per level (500, 1250, 2000, 2750, 3500)
+ */
+const autoPlayCodeRunnerUpgrade: MinigameUpgrade = {
+  id: 'auto-play-code-runner',
+  name: 'AI Auto-Play',
+  description: 'Unlocks and improves AI auto-play for Code Runner',
+  category: 'minigame',
+  minigameId: 'code-runner',
+  costResource: 'technique',
+  baseCost: '500',
+  maxLevel: 5,
+  costIncrement: '750', // 500, 1250, 2000, 2750, 3500
+  effectType: 'auto_play_level',
+  baseEffect: 1, // Level 1 at first purchase
+  effectPerLevel: 1, // +1 per level
+};
+
+/**
+ * Auto-Play: Botnet Defense (Minigame - Botnet Defense)
+ * Unlocks and improves AI auto-play for Botnet Defense.
+ * Cost: 500 TP base, +750 TP per level (500, 1250, 2000, 2750, 3500)
+ */
+const autoPlayBotnetDefenseUpgrade: MinigameUpgrade = {
+  id: 'auto-play-botnet-defense',
+  name: 'AI Auto-Play',
+  description: 'Unlocks and improves AI auto-play for Botnet Defense',
+  category: 'minigame',
+  minigameId: 'botnet-defense',
+  costResource: 'technique',
+  baseCost: '500',
+  maxLevel: 5,
+  costIncrement: '750', // 500, 1250, 2000, 2750, 3500
+  effectType: 'auto_play_level',
+  baseEffect: 1, // Level 1 at first purchase
+  effectPerLevel: 1, // +1 per level
+};
+
 // ============================================================================
 // Upgrade Registry
 // ============================================================================
@@ -445,6 +510,9 @@ const UPGRADES: Record<string, Upgrade> = {
   'entropy-reducer': entropyReducerUpgrade,
   'payload-amplifier': payloadAmplifierUpgrade,
   'redundant-systems': redundantSystemsUpgrade,
+  'auto-play-code-breaker': autoPlayCodeBreakerUpgrade,
+  'auto-play-code-runner': autoPlayCodeRunnerUpgrade,
+  'auto-play-botnet-defense': autoPlayBotnetDefenseUpgrade,
 };
 
 /**
@@ -455,7 +523,7 @@ export const UPGRADES_BY_CATEGORY: Record<UpgradeCategory, Upgrade[]> = {
   apartment: [],
   consumable: [trainingManualUpgrade],
   hardware: [bookSummarizerUpgrade],
-  minigame: [gapExpanderUpgrade, bufferOverflowUpgrade, overclockUpgrade, centralRouterUpgrade, timingExploitUpgrade, entropyReducerUpgrade, payloadAmplifierUpgrade, redundantSystemsUpgrade],
+  minigame: [gapExpanderUpgrade, bufferOverflowUpgrade, overclockUpgrade, centralRouterUpgrade, timingExploitUpgrade, entropyReducerUpgrade, payloadAmplifierUpgrade, redundantSystemsUpgrade, autoPlayCodeBreakerUpgrade, autoPlayCodeRunnerUpgrade, autoPlayBotnetDefenseUpgrade],
 };
 
 /**
@@ -832,6 +900,9 @@ export function getUpgradeEffectFormatted(store: GameStore, upgradeId: string): 
       if (mg.effectType === 'health_bonus') {
         return level > 0 ? `+${effect} HP` : '+1 HP';
       }
+      if (mg.effectType === 'auto_play_level') {
+        return level > 0 ? `AI Lv${level}` : 'Unlocks AI Lv1';
+      }
       return `${effect}`;
     }
 
@@ -979,6 +1050,18 @@ export function getDamageMultBonus(store: GameStore): number {
  */
 export function getHealthBonus(store: GameStore): number {
   return getUpgradeEffect(store, 'redundant-systems');
+}
+
+/**
+ * Get the auto-play level for a given minigame.
+ * Returns 0 if auto-play has not been purchased, or 1-5 for the current AI level.
+ *
+ * @param store - The game store
+ * @param minigameId - The minigame identifier (e.g. 'code-breaker', 'code-runner', 'botnet-defense')
+ * @returns The auto-play level (0 = not unlocked, 1-5 = AI level)
+ */
+export function getAutoPlayLevel(store: GameStore, minigameId: string): number {
+  return getUpgradeLevel(store, `auto-play-${minigameId}`);
 }
 
 // ============================================================================

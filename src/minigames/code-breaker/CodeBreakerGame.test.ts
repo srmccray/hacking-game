@@ -423,7 +423,7 @@ describe('CodeBreakerGame', () => {
       expect(game.score).toBe(2);
     });
 
-    it('should multiply score by 100 on end', () => {
+    it('should equal codes cracked count after end', () => {
       game.start();
 
       completeCurrentCode(game);
@@ -431,7 +431,7 @@ describe('CodeBreakerGame', () => {
       completeCurrentCode(game);
       game.end();
 
-      expect(game.score).toBe(300); // 3 codes * 100
+      expect(game.score).toBe(3); // 3 codes cracked
     });
 
     it('should have score 0 if no codes cracked', () => {

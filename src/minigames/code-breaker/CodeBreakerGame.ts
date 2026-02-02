@@ -17,7 +17,7 @@
  * - Wrong character: immediate game over (_failReason = 'wrong-input')
  * - Timer expires: immediate game over (_failReason = 'timeout')
  * - Completing a code: increment code length, generate new code, reset timer
- * - Score = number of codes cracked (multiplied by 100 for storage)
+ * - Score = number of codes cracked
  * - Money = sum of baseMoneyPerCode * codeLength for each cracked code
  *
  * Usage:
@@ -241,8 +241,8 @@ export class CodeBreakerGame extends BaseMinigame {
   }
 
   protected onEnd(): void {
-    // Final state: score = codes cracked (multiplied by 100 for storage compatibility)
-    this._score = this._codesCracked * 100;
+    // Final state: score = codes cracked
+    this._score = this._codesCracked;
   }
 
   protected onUpdate(deltaMs: number): void {
@@ -354,7 +354,7 @@ export class CodeBreakerGame extends BaseMinigame {
     // Accumulate money: baseMoneyPerCode * completed code length
     this._totalMoneyEarned += this.config.baseMoneyPerCode * completedCodeLength;
 
-    // Update score (raw codes cracked, onEnd multiplies by 100)
+    // Update score (equal to codes cracked count)
     this._score = this._codesCracked;
 
     // Escalate: increase code length BEFORE emitting so listeners see updated state

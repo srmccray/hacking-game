@@ -1269,7 +1269,7 @@ export class InGameMenu {
   }
 
   /**
-   * Confirm reset: wipe all game state and return to main menu.
+   * Confirm reset: wipe all game state and close the menu.
    */
   private async confirmReset(): Promise<void> {
     console.log('[InGameMenu] Reset confirmed');
@@ -1279,11 +1279,8 @@ export class InGameMenu {
     // Save the clean initial state to overwrite old save data
     await this.game.saveManager.quickSave();
 
-    // Close the menu
+    // Close the menu so the player stays in the current scene
     this.hide();
-
-    // Go to main menu
-    await this.game.switchScene('main-menu');
   }
 
   /**
