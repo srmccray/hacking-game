@@ -481,6 +481,12 @@ export function createInitialGameState(): GameState {
         playCount: 0,
         upgrades: {},
       },
+      'botnet-defense': {
+        unlocked: true, // Testing - unlocked by default
+        topScores: [],
+        playCount: 0,
+        upgrades: {},
+      },
     },
 
     upgrades: {

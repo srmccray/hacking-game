@@ -26,8 +26,8 @@ import type { BoundingBox } from './Player';
 // Types
 // ============================================================================
 
-/** Available station types */
-export type StationType = 'desk' | 'couch' | 'bed' | 'workbench';
+/** Station type identifier (string to allow custom types beyond built-in ones) */
+export type StationType = string;
 
 /** Station configuration */
 export interface StationConfig {
@@ -35,10 +35,12 @@ export interface StationConfig {
   onInteract?: () => void;
   /** Whether the station is currently active/usable */
   enabled?: boolean;
+  /** Custom visual config (overrides STATION_VISUALS lookup for custom types) */
+  visual?: StationVisual;
 }
 
 /** Configuration for each station type's appearance */
-interface StationVisual {
+export interface StationVisual {
   /** ASCII label displayed (e.g., "[D]") */
   label: string;
   /** Display name shown below */
@@ -59,7 +61,8 @@ interface StationVisual {
 // Visual Configuration
 // ============================================================================
 
-const STATION_VISUALS: Record<StationType, StationVisual> = {
+/** Built-in station visuals for known apartment station types */
+export const STATION_VISUALS: Record<string, StationVisual> = {
   desk: {
     label: '[D]',
     name: 'DESK',
@@ -187,7 +190,13 @@ export class Station {
     y: number = FLOOR_Y,
     config: StationConfig = {}
   ) {
-    const visual = STATION_VISUALS[type];
+    const visual = config.visual ?? STATION_VISUALS[type];
+    if (!visual) {
+      throw new Error(
+        `No visual config for station type "${type}". ` +
+        `Pass a visual in StationConfig or register in STATION_VISUALS.`
+      );
+    }
     this.type = type;
     this.x = x;
     this.y = y;
@@ -478,7 +487,7 @@ export class StationManager {
   /**
    * Find a station by type.
    */
-  getStationByType(type: StationType): Station | undefined {
+  getStationByType(type: string): Station | undefined {
     return this.stations.find(s => s.type === type);
   }
 

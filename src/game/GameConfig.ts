@@ -122,6 +122,39 @@ export interface CodeRunnerConfig {
 }
 
 /**
+ * Botnet Defense minigame configuration.
+ * A Vampire Survivors-style arena shooter where the player defends against waves of malware.
+ */
+export interface BotnetDefenseConfig {
+  /** Arena width in pixels */
+  arenaWidth: number;
+  /** Arena height in pixels (smaller than canvas to leave room for HUD) */
+  arenaHeight: number;
+  /** Player movement speed in pixels per second */
+  playerSpeed: number;
+  /** Player starting and maximum hit points */
+  playerMaxHP: number;
+  /** Total game duration in milliseconds */
+  timeLimitMs: number;
+  /** Base XP required for the first level-up */
+  baseXPToLevel: number;
+  /** Multiplicative scaling factor for XP required per level */
+  xpLevelScaling: number;
+  /** Radius in pixels for magnetic XP gem pickup */
+  pickupRadius: number;
+  /** Conversion rate from score to money reward */
+  moneyPerScore: number;
+  /** Points awarded per enemy kill */
+  killPoints: number;
+  /** Points awarded per second of survival */
+  timePoints: number;
+  /** Duration of invincibility frames after taking damage in milliseconds */
+  iFramesMs: number;
+  /** Number of upgrade choices presented on level-up */
+  upgradeChoiceCount: number;
+}
+
+/**
  * Upgrade system configuration.
  */
 export interface UpgradeSystemConfig {
@@ -169,6 +202,7 @@ export interface MovementConfig {
 export interface MinigamesConfig {
   codeBreaker: CodeBreakerConfig;
   codeRunner: CodeRunnerConfig;
+  botnetDefense: BotnetDefenseConfig;
 }
 
 /**
@@ -219,7 +253,7 @@ export const DEFAULT_CONFIG: GameConfig = {
 
   autoGeneration: {
     scoreToRateDivisor: 100, // Sum of top scores / 100 = per second rate
-    moneyGeneratingMinigames: ['code-breaker'],
+    moneyGeneratingMinigames: ['code-breaker', 'botnet-defense'],
   },
 
   minigames: {
@@ -241,6 +275,21 @@ export const DEFAULT_CONFIG: GameConfig = {
       playerHitboxSize: { width: 24, height: 32 },
       moneyPerWall: 10, // earn 10 money per wall passed
       initialObstacleDelay: 1000, // 1 second delay before first obstacle
+    },
+    botnetDefense: {
+      arenaWidth: 800,
+      arenaHeight: 500,          // Leave room for HUD at top
+      playerSpeed: 180,          // Pixels per second
+      playerMaxHP: 5,
+      timeLimitMs: 180_000,      // 3 minutes
+      baseXPToLevel: 10,
+      xpLevelScaling: 1.3,       // Each level needs 30% more XP
+      pickupRadius: 50,          // Pixels - magnetic pull range
+      moneyPerScore: 0.1,        // 10 score = 1 money
+      killPoints: 10,
+      timePoints: 1,             // 1 point per second survived
+      iFramesMs: 1000,
+      upgradeChoiceCount: 3,
     },
   },
 
@@ -282,6 +331,7 @@ export interface PartialGameConfig {
   minigames?: {
     codeBreaker?: Partial<CodeBreakerConfig>;
     codeRunner?: Partial<CodeRunnerConfig>;
+    botnetDefense?: Partial<BotnetDefenseConfig>;
   };
   upgrades?: Partial<UpgradeSystemConfig>;
   debug?: Partial<DebugConfig>;
@@ -332,6 +382,10 @@ export function createConfig(partial: PartialGameConfig = {}): GameConfig {
       codeRunner: {
         ...DEFAULT_CONFIG.minigames.codeRunner,
         ...partial.minigames?.codeRunner,
+      },
+      botnetDefense: {
+        ...DEFAULT_CONFIG.minigames.botnetDefense,
+        ...partial.minigames?.botnetDefense,
       },
     },
     upgrades: {
