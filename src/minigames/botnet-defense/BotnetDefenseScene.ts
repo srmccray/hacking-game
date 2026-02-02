@@ -927,9 +927,9 @@ class BotnetDefenseScene implements Scene {
       this.timerText.text = formatTimeMMSS(this.minigame.playTimeMs);
     }
 
-    // Update score
+    // Update score (displayed as MM:SS since score is survival seconds)
     if (this.scoreText && this.minigame) {
-      this.scoreText.text = this.minigame.score.toString();
+      this.scoreText.text = formatTimeMMSS(this.minigame.score * 1000);
     }
 
     // Update XP bar
@@ -1237,9 +1237,8 @@ class BotnetDefenseScene implements Scene {
 
     const statLines = [
       `KILLS: ${gameState.kills}`,
-      `SURVIVAL TIME: ${formatTimeMMSS(stats.durationMs)}`,
       `LEVEL REACHED: ${gameState.level}`,
-      `SCORE: ${stats.score}`,
+      `SURVIVED: ${formatTimeMMSS(stats.score * 1000)}`,
       `MONEY EARNED: $${moneyReward}`,
     ];
 

@@ -316,13 +316,12 @@ export class BotnetDefenseGame extends BaseMinigame {
   }
 
   protected onEnd(): void {
-    // Calculate final score: kills * killPoints + floor(survivalSeconds) * timePoints
+    // Score is simply survival time in seconds
     const survivalSeconds = Math.floor(this._playTimeMs / 1000);
-    const finalScore = this._kills * this.config.killPoints + survivalSeconds * this.config.timePoints;
-    this._score = finalScore;
+    this._score = survivalSeconds;
 
     // Calculate money reward
-    this._moneyEarned = Math.floor(finalScore * this.config.moneyPerScore);
+    this._moneyEarned = Math.floor(survivalSeconds * this.config.moneyPerScore);
 
     // Clear input
     this._input = { left: false, right: false, up: false, down: false };
@@ -361,9 +360,8 @@ export class BotnetDefenseGame extends BaseMinigame {
     // Remove inactive entities
     this.cleanupEntities();
 
-    // Update running score
-    const survivalSeconds = Math.floor(this._playTimeMs / 1000);
-    this._score = this._kills * this.config.killPoints + survivalSeconds * this.config.timePoints;
+    // Update running score (survival time in seconds)
+    this._score = Math.floor(this._playTimeMs / 1000);
 
     // Check survival milestones
     this.checkSurvivalMilestones();

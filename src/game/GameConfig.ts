@@ -260,7 +260,7 @@ export const DEFAULT_CONFIG: GameConfig = {
     codeBreaker: {
       startingCodeLength: 5,
       lengthIncrement: 1,
-      perCodeTimeLimitMs: 5000, // 5 seconds per code
+      perCodeTimeLimitMs: 3000, // 3 seconds per code
       baseMoneyPerCode: 5, // money = baseMoneyPerCode * codeLength per cracked code
       maxTopScores: 5,
       characterSet: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',

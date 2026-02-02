@@ -27,7 +27,7 @@ describe('GameConfig', () => {
 
     it('should have code breaker config', () => {
       expect(DEFAULT_CONFIG.minigames.codeBreaker.startingCodeLength).toBe(5);
-      expect(DEFAULT_CONFIG.minigames.codeBreaker.perCodeTimeLimitMs).toBe(5000);
+      expect(DEFAULT_CONFIG.minigames.codeBreaker.perCodeTimeLimitMs).toBe(3000);
       expect(DEFAULT_CONFIG.minigames.codeBreaker.maxTopScores).toBe(5);
       expect(DEFAULT_CONFIG.minigames.codeBreaker.characterSet).toBe(
         'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'

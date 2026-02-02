@@ -33,6 +33,7 @@ import {
   titleStyle,
 } from '../../rendering/styles';
 import { formatDecimal } from '../../core/resources/resource-manager';
+import { formatTimeMMSS } from '../../minigames/BaseMinigame';
 import { createMinigameUpgradesScene } from '../minigame-upgrades';
 
 // ============================================================================
@@ -245,7 +246,12 @@ class MinigameInterstitialScene implements Scene {
     } else {
       const scoresToShow = topScores.slice(0, displayCount);
       const scoreLines = scoresToShow
-        .map((score, i) => `${i + 1}. ${formatDecimal(score)}`)
+        .map((score, i) => {
+          const formatted = this.minigameId === 'botnet-defense'
+            ? formatTimeMMSS(Number(score) * 1000)
+            : formatDecimal(score);
+          return `${i + 1}. ${formatted}`;
+        })
         .join('   ');
 
       const scoresText = new Text({
