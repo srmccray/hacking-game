@@ -57,6 +57,8 @@ import {
   getCodeLengthReduction,
   getTypoAllowance,
 } from '../../upgrades/upgrade-definitions';
+import { createCodeBreakerAutoPlay } from './auto-play';
+import type { AutoPlayController } from './auto-play';
 
 // ============================================================================
 // Configuration
@@ -170,6 +172,14 @@ class CodeBreakerScene implements Scene {
   // Event unsubscribers
   private unsubscribers: Array<() => void> = [];
 
+  // Auto-play state
+  /** AI auto-play level (0 = manual, 1-5 = AI) */
+  private autoPlayLevel: number = 0;
+  /** AI auto-play controller (null when manual) */
+  private autoPlayController: AutoPlayController | null = null;
+  /** HUD indicator text for auto-play mode */
+  private autoPlayIndicator: Text | null = null;
+
   constructor(game: Game) {
     this.game = game;
     this.container = new Container();
@@ -187,6 +197,10 @@ class CodeBreakerScene implements Scene {
   onEnter(): void {
     console.log('[CodeBreakerScene] Entering scene');
 
+    // Read and clear pending auto-play level
+    this.autoPlayLevel = this.game.pendingAutoPlayLevel;
+    this.game.pendingAutoPlayLevel = 0;
+
     // Create static UI elements
     this.createUI();
 
@@ -202,8 +216,10 @@ class CodeBreakerScene implements Scene {
     // Register input context (Escape/Enter only)
     this.registerInputContext();
 
-    // Register raw keydown listener for character input
-    this.registerRawKeyListener();
+    // Register raw keydown listener for character input (skip if auto-play)
+    if (this.autoPlayLevel <= 0) {
+      this.registerRawKeyListener();
+    }
 
     // Reset session tracking
     this.accumulatedMoney = 0;
@@ -215,6 +231,13 @@ class CodeBreakerScene implements Scene {
 
     // Start the game
     this.minigame.start();
+
+    // Create auto-play controller after game starts (needs active game instance)
+    if (this.autoPlayLevel > 0 && this.minigame) {
+      this.autoPlayController = createCodeBreakerAutoPlay(this.minigame, this.autoPlayLevel);
+      console.log(`[CodeBreakerScene] Auto-play enabled at level ${this.autoPlayLevel}`);
+      this.createAutoPlayIndicator();
+    }
 
     // Track longest code (after start so reduction is applied)
     this.longestCodeLength = this.minigame.currentCodeLength;
@@ -266,6 +289,11 @@ class CodeBreakerScene implements Scene {
       return;
     }
 
+    // Update auto-play controller (AI injects inputs via handleCharInput)
+    if (this.autoPlayController) {
+      this.autoPlayController.update(deltaMs);
+    }
+
     // Update minigame logic
     this.minigame.update(deltaMs);
 
@@ -283,6 +311,12 @@ class CodeBreakerScene implements Scene {
 
     // Remove raw keydown listener
     this.removeRawKeyListener();
+
+    // Destroy auto-play controller
+    if (this.autoPlayController) {
+      this.autoPlayController.destroy();
+      this.autoPlayController = null;
+    }
 
     // Unregister input context
     if (this.inputContext) {
@@ -311,6 +345,7 @@ class CodeBreakerScene implements Scene {
     this.codeDisplayContainer = null;
     this.resultsOverlay = null;
     this.milestoneOverlay = null;
+    this.autoPlayIndicator = null;
 
     // Destroy container and children
     this.container.destroy({ children: true });
@@ -550,6 +585,22 @@ class CodeBreakerScene implements Scene {
     this.statusText.x = centerX;
     this.statusText.y = y;
     this.container.addChild(this.statusText);
+  }
+
+  /**
+   * Create the [AI] auto-play indicator in the top-right corner.
+   */
+  private createAutoPlayIndicator(): void {
+    const width = this.game.config.canvas.width;
+
+    this.autoPlayIndicator = new Text({
+      text: `[AI] Auto-Play Lvl ${this.autoPlayLevel}`,
+      style: createTerminalStyle(COLORS.TERMINAL_CYAN, 14, true),
+    });
+    this.autoPlayIndicator.anchor.set(1, 0);
+    this.autoPlayIndicator.x = width - LAYOUT.PADDING - 10;
+    this.autoPlayIndicator.y = LAYOUT.PADDING + 5;
+    this.container.addChild(this.autoPlayIndicator);
   }
 
   // ==========================================================================
@@ -1007,13 +1058,25 @@ class CodeBreakerScene implements Scene {
       failColor = COLORS.TERMINAL_YELLOW;
     }
 
+    // Show AUTO-PLAY label above the title when in auto-play mode
+    if (this.autoPlayLevel > 0) {
+      const autoPlayLabel = new Text({
+        text: `AUTO-PLAY LVL ${this.autoPlayLevel}`,
+        style: createTerminalStyle(COLORS.TERMINAL_CYAN, 16, true),
+      });
+      autoPlayLabel.anchor.set(0.5, 0);
+      autoPlayLabel.x = width / 2;
+      autoPlayLabel.y = boxY + 8;
+      this.resultsOverlay.addChild(autoPlayLabel);
+    }
+
     const title = new Text({
       text: failText,
       style: createTerminalStyle(failColor, 32, true),
     });
     title.anchor.set(0.5, 0);
     title.x = width / 2;
-    title.y = boxY + 25;
+    title.y = boxY + (this.autoPlayLevel > 0 ? 30 : 25);
     this.resultsOverlay.addChild(title);
 
     // Divider
@@ -1170,6 +1233,7 @@ class CodeBreakerScene implements Scene {
       this.minigame.end();
     }
 
+    // If auto-play, go directly back to apartment
     void this.game.switchScene('apartment');
   }
 

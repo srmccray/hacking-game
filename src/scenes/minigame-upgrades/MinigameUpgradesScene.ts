@@ -34,6 +34,7 @@ import {
   FONT_SIZES,
   terminalDimStyle,
   terminalBrightStyle,
+  terminalSmallStyle,
   titleStyle,
 } from '../../rendering/styles';
 import { formatResource } from '../../core/resources/resource-manager';
@@ -61,8 +62,8 @@ const LAYOUT = {
   TP_BALANCE_Y: 200,
   /** Upgrade list start Y position */
   UPGRADE_LIST_Y: 270,
-  /** Height of each upgrade row */
-  UPGRADE_ROW_HEIGHT: 40,
+  /** Height of each upgrade row (name + description) */
+  UPGRADE_ROW_HEIGHT: 58,
   /** No upgrades message Y position */
   NO_UPGRADES_Y: 320,
   /** Instructions Y offset from bottom */
@@ -370,6 +371,18 @@ class MinigameUpgradesScene implements Scene {
     effect.anchor.set(1, 0);
     effect.x = width - LAYOUT.PADDING - 20;
     row.addChild(effect);
+
+    // Description (dimmer, smaller text below the name)
+    if (info.description) {
+      const description = new Text({
+        text: info.description,
+        style: terminalSmallStyle,
+      });
+      description.label = 'description';
+      description.x = LAYOUT.PADDING + 30;
+      description.y = 22;
+      row.addChild(description);
+    }
 
     return row;
   }

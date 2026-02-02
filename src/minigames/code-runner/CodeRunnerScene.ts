@@ -55,6 +55,8 @@ import {
 import { GameEvents } from '../../events/game-events';
 import { getGapWidthBonus, getWallSpacingBonus, getMoveSpeedBonus, getCenterBiasStrength } from '../../upgrades/upgrade-definitions';
 import { createMinigameInterstitialScene } from '../../scenes/minigame-interstitial';
+import { createCodeRunnerAutoPlay } from './auto-play';
+import type { AutoPlayController } from '../code-breaker/auto-play';
 
 // ============================================================================
 // Configuration
@@ -215,6 +217,14 @@ class CodeRunnerScene implements Scene {
   // Event unsubscribers
   private unsubscribers: Array<() => void> = [];
 
+  // Auto-play state
+  /** AI auto-play level (0 = manual, 1-5 = AI) */
+  private autoPlayLevel: number = 0;
+  /** AI auto-play controller (null when manual) */
+  private autoPlayController: AutoPlayController | null = null;
+  /** HUD indicator text for auto-play mode */
+  private autoPlayIndicator: Text | null = null;
+
   constructor(game: Game) {
     this.game = game;
     this.container = new Container();
@@ -231,6 +241,10 @@ class CodeRunnerScene implements Scene {
 
   onEnter(): void {
     console.log('[CodeRunnerScene] Entering scene');
+
+    // Read and clear pending auto-play level
+    this.autoPlayLevel = this.game.pendingAutoPlayLevel;
+    this.game.pendingAutoPlayLevel = 0;
 
     // Create UI
     this.createUI();
@@ -265,6 +279,13 @@ class CodeRunnerScene implements Scene {
 
     // Start the game
     this.minigame.start();
+
+    // Create auto-play controller after game starts (needs active game instance)
+    if (this.autoPlayLevel > 0 && this.minigame) {
+      this.autoPlayController = createCodeRunnerAutoPlay(this.minigame, this.autoPlayLevel, width);
+      console.log(`[CodeRunnerScene] Auto-play enabled at level ${this.autoPlayLevel}`);
+      this.createAutoPlayIndicator();
+    }
 
     // Emit minigame started event
     this.game.eventBus.emit(GameEvents.MINIGAME_STARTED, {
@@ -307,6 +328,12 @@ class CodeRunnerScene implements Scene {
       return;
     }
 
+    // Update auto-play controller (AI calls game.setInput directly)
+    // When auto-play is active, skip manual keyboard input polling
+    if (this.autoPlayController) {
+      this.autoPlayController.update(deltaMs);
+    }
+
     // Update minigame logic
     this.minigame.update(deltaMs);
 
@@ -319,6 +346,12 @@ class CodeRunnerScene implements Scene {
 
   onDestroy(): void {
     console.log('[CodeRunnerScene] Destroying scene');
+
+    // Destroy auto-play controller
+    if (this.autoPlayController) {
+      this.autoPlayController.destroy();
+      this.autoPlayController = null;
+    }
 
     // Unregister input context
     if (this.inputContext) {
@@ -342,6 +375,7 @@ class CodeRunnerScene implements Scene {
     this.milestoneOverlay = null;
     this.gameArea = null;
     this.difficultyPopupText = null;
+    this.autoPlayIndicator = null;
 
     // Destroy container and children
     this.container.destroy({ children: true });
@@ -537,6 +571,22 @@ class CodeRunnerScene implements Scene {
     this.difficultyPopupText.y = LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING + 80;
     this.difficultyPopupText.alpha = 0;
     this.container.addChild(this.difficultyPopupText);
+  }
+
+  /**
+   * Create the [AI] auto-play indicator in the top-right corner.
+   */
+  private createAutoPlayIndicator(): void {
+    const width = this.game.config.canvas.width;
+
+    this.autoPlayIndicator = new Text({
+      text: `[AI] Auto-Play Lvl ${this.autoPlayLevel}`,
+      style: createTerminalStyle(COLORS.TERMINAL_CYAN, 14, true),
+    });
+    this.autoPlayIndicator.anchor.set(1, 0);
+    this.autoPlayIndicator.x = width - LAYOUT.PADDING - 10;
+    this.autoPlayIndicator.y = LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING + 10;
+    this.container.addChild(this.autoPlayIndicator);
   }
 
   // ==========================================================================
@@ -873,6 +923,18 @@ class CodeRunnerScene implements Scene {
     boxBorder.stroke({ color: COLORS.TERMINAL_GREEN, width: 2 });
     this.resultsOverlay.addChild(boxBorder);
 
+    // Show AUTO-PLAY label above the title when in auto-play mode
+    if (this.autoPlayLevel > 0) {
+      const autoPlayLabel = new Text({
+        text: `AUTO-PLAY LVL ${this.autoPlayLevel}`,
+        style: createTerminalStyle(COLORS.TERMINAL_CYAN, 16, true),
+      });
+      autoPlayLabel.anchor.set(0.5, 0);
+      autoPlayLabel.x = width / 2;
+      autoPlayLabel.y = boxY + 8;
+      this.resultsOverlay.addChild(autoPlayLabel);
+    }
+
     // Title
     const title = new Text({
       text: 'CRASH!',
@@ -880,7 +942,7 @@ class CodeRunnerScene implements Scene {
     });
     title.anchor.set(0.5, 0);
     title.x = width / 2;
-    title.y = boxY + 20;
+    title.y = boxY + (this.autoPlayLevel > 0 ? 28 : 20);
     this.resultsOverlay.addChild(title);
 
     // Walls passed label
@@ -1146,6 +1208,11 @@ class CodeRunnerScene implements Scene {
       return;
     }
 
+    // Skip manual input when auto-play is active (AI controls movement)
+    if (this.autoPlayController) {
+      return;
+    }
+
     if (this.showingResults || !this.minigame?.isPlaying) {
       return;
     }
@@ -1166,6 +1233,11 @@ class CodeRunnerScene implements Scene {
    */
   private handleMovementRelease(_direction: 'left' | 'right'): void {
     if (!this.minigame) {
+      return;
+    }
+
+    // Skip manual input when auto-play is active
+    if (this.autoPlayController) {
       return;
     }
 

@@ -101,6 +101,12 @@ export class Game implements GameInstance {
   /** Tick engine for idle progression */
   readonly tickEngine: TickEngine;
 
+  /**
+   * When set to a value > 0, the next minigame scene should run in auto-play
+   * mode at this AI level. The minigame scene reads and clears this value.
+   */
+  pendingAutoPlayLevel = 0;
+
   // ==========================================================================
   // Private State
   // ==========================================================================

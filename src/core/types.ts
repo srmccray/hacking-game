@@ -439,6 +439,12 @@ export interface GameInstance {
   readonly eventBus: unknown;
   readonly inputManager: unknown;
   readonly sceneManager: unknown;
+
+  /**
+   * When set, indicates the next minigame scene should run in auto-play mode
+   * at the specified AI level. Cleared by the minigame scene after reading.
+   */
+  pendingAutoPlayLevel: number;
 }
 
 /**

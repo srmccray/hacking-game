@@ -52,6 +52,8 @@ import { GameEvents } from '../../events/game-events';
 import { formatTimeMMSS } from '../BaseMinigame';
 import { createMinigameInterstitialScene } from '../../scenes/minigame-interstitial';
 import { getDamageMultBonus, getHealthBonus } from '../../upgrades/upgrade-definitions';
+import { createBotnetDefenseAutoPlay } from './auto-play';
+import type { AutoPlayController } from '../code-breaker/auto-play';
 
 // ============================================================================
 // Configuration
@@ -198,6 +200,14 @@ class BotnetDefenseScene implements Scene {
   /** Event unsubscribers */
   private unsubscribers: Array<() => void> = [];
 
+  // Auto-play state
+  /** AI auto-play level (0 = manual, 1-5 = AI) */
+  private autoPlayLevel: number = 0;
+  /** AI auto-play controller (null when manual) */
+  private autoPlayController: AutoPlayController | null = null;
+  /** HUD indicator text for auto-play mode */
+  private autoPlayIndicator: Text | null = null;
+
   /** I-frame blink timer for toggling player visibility */
   private iframeBlinkTimer: number = 0;
 
@@ -244,6 +254,10 @@ class BotnetDefenseScene implements Scene {
   onEnter(): void {
     console.log('[BotnetDefenseScene] Entering scene');
 
+    // Read and clear pending auto-play level
+    this.autoPlayLevel = this.game.pendingAutoPlayLevel;
+    this.game.pendingAutoPlayLevel = 0;
+
     // Create UI
     this.createUI();
 
@@ -270,6 +284,13 @@ class BotnetDefenseScene implements Scene {
 
     // Start the game
     this.minigame.start();
+
+    // Create auto-play controller after game starts (needs active game instance)
+    if (this.autoPlayLevel > 0 && this.minigame) {
+      this.autoPlayController = createBotnetDefenseAutoPlay(this.minigame, this.autoPlayLevel);
+      console.log(`[BotnetDefenseScene] Auto-play enabled at level ${this.autoPlayLevel}`);
+      this.createAutoPlayIndicator();
+    }
 
     // Emit minigame started event
     this.game.eventBus.emit(GameEvents.MINIGAME_STARTED, {
@@ -313,8 +334,9 @@ class BotnetDefenseScene implements Scene {
     }
 
     // Check if the game logic has triggered a level-up that we haven't shown yet
+    // When auto-play is active, the AI controller handles level-up choices directly
     const state = this.minigame.getState();
-    if (state.isLevelingUp && !this.showingLevelUp) {
+    if (state.isLevelingUp && !this.showingLevelUp && !this.autoPlayController) {
       this.showLevelUpOverlay(state.upgradeChoices, state.level);
       return;
     }
@@ -324,8 +346,14 @@ class BotnetDefenseScene implements Scene {
       return;
     }
 
-    // Poll held keys for continuous movement input
-    this.pollMovementInput();
+    // Update auto-play controller (AI calls game.setInput and applyUpgrade directly)
+    // When auto-play is active, skip manual keyboard input polling
+    if (this.autoPlayController) {
+      this.autoPlayController.update(deltaMs);
+    } else {
+      // Poll held keys for continuous movement input (manual mode only)
+      this.pollMovementInput();
+    }
 
     // Snapshot HP before game update so we can detect damage
     const hpBefore = this.minigame.getState().player.hp;
@@ -367,6 +395,12 @@ class BotnetDefenseScene implements Scene {
   onDestroy(): void {
     console.log('[BotnetDefenseScene] Destroying scene');
 
+    // Destroy auto-play controller
+    if (this.autoPlayController) {
+      this.autoPlayController.destroy();
+      this.autoPlayController = null;
+    }
+
     // Unregister input context
     if (this.inputContext) {
       this.game.inputManager.unregisterContext(this.inputContext.id);
@@ -404,6 +438,7 @@ class BotnetDefenseScene implements Scene {
     this.levelUpOverlay = null;
     this.milestoneOverlay = null;
     this.cardBorders = [];
+    this.autoPlayIndicator = null;
 
     // Destroy container and children
     this.container.destroy({ children: true });
@@ -727,6 +762,22 @@ class BotnetDefenseScene implements Scene {
     statusText.x = centerX;
     statusText.y = y;
     this.container.addChild(statusText);
+  }
+
+  /**
+   * Create the [AI] auto-play indicator in the top-right corner of the HUD.
+   */
+  private createAutoPlayIndicator(): void {
+    const canvasWidth = (this.game.config as { canvas: { width: number; height: number } }).canvas.width;
+
+    this.autoPlayIndicator = new Text({
+      text: `[AI] Auto-Play Lvl ${this.autoPlayLevel}`,
+      style: createTerminalStyle(COLORS.TERMINAL_CYAN, 14, true),
+    });
+    this.autoPlayIndicator.anchor.set(1, 0);
+    this.autoPlayIndicator.x = canvasWidth - LAYOUT.PADDING - 10;
+    this.autoPlayIndicator.y = LAYOUT.PADDING + 8;
+    this.container.addChild(this.autoPlayIndicator);
   }
 
   // ==========================================================================
@@ -1227,6 +1278,18 @@ class BotnetDefenseScene implements Scene {
     boxBorder.stroke({ color: COLORS.TERMINAL_GREEN, width: 2 });
     this.resultsOverlay.addChild(boxBorder);
 
+    // Show AUTO-PLAY label above the title when in auto-play mode
+    if (this.autoPlayLevel > 0) {
+      const autoPlayLabel = new Text({
+        text: `AUTO-PLAY LVL ${this.autoPlayLevel}`,
+        style: createTerminalStyle(COLORS.TERMINAL_CYAN, 16, true),
+      });
+      autoPlayLabel.anchor.set(0.5, 0);
+      autoPlayLabel.x = canvasWidth / 2;
+      autoPlayLabel.y = boxY + 8;
+      this.resultsOverlay.addChild(autoPlayLabel);
+    }
+
     // Title - game always ends on player death in survival mode
     const title = new Text({
       text: 'SYSTEM COMPROMISED',
@@ -1234,7 +1297,7 @@ class BotnetDefenseScene implements Scene {
     });
     title.anchor.set(0.5, 0);
     title.x = canvasWidth / 2;
-    title.y = boxY + 20;
+    title.y = boxY + (this.autoPlayLevel > 0 ? 28 : 20);
     this.resultsOverlay.addChild(title);
 
     // Stats

@@ -267,7 +267,7 @@ const bookSummarizerUpgrade: HardwareUpgrade = {
 const gapExpanderUpgrade: MinigameUpgrade = {
   id: 'gap-expander',
   name: 'Gap Expander',
-  description: 'Widens the gap in code walls. Each level adds +1 character width to the gap.',
+  description: 'Widens the gaps between obstacles, giving you more room to slip through',
   category: 'minigame',
   minigameId: 'code-runner',
   costResource: 'technique',
@@ -287,7 +287,7 @@ const gapExpanderUpgrade: MinigameUpgrade = {
 const bufferOverflowUpgrade: MinigameUpgrade = {
   id: 'buffer-overflow',
   name: 'Buffer Overflow',
-  description: 'Overflows the code buffer, adding more space between walls. Each level adds ~1 character height of vertical spacing.',
+  description: 'Increases the vertical spacing between walls, giving you more reaction time',
   category: 'minigame',
   minigameId: 'code-runner',
   costResource: 'technique',
@@ -307,7 +307,7 @@ const bufferOverflowUpgrade: MinigameUpgrade = {
 const overclockUpgrade: MinigameUpgrade = {
   id: 'overclock',
   name: 'Overclock',
-  description: 'Overclocks your processor for faster reflexes. Each level increases move speed.',
+  description: 'Boosts your lateral movement speed so you can reach gaps faster',
   category: 'minigame',
   minigameId: 'code-runner',
   costResource: 'technique',
@@ -327,7 +327,7 @@ const overclockUpgrade: MinigameUpgrade = {
 const centralRouterUpgrade: MinigameUpgrade = {
   id: 'central-router',
   name: 'Central Router',
-  description: 'Routes data packets through central channels, making gaps appear closer to the middle.',
+  description: 'Routes data through central channels \u2014 gaps appear closer to the middle of the screen',
   category: 'minigame',
   minigameId: 'code-runner',
   costResource: 'technique',

@@ -35,6 +35,7 @@ import {
 import { formatDecimal } from '../../core/resources/resource-manager';
 import { formatTimeMMSS } from '../../minigames/BaseMinigame';
 import { createMinigameUpgradesScene } from '../minigame-upgrades';
+import { getAutoPlayLevel } from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
 // Configuration
@@ -56,8 +57,18 @@ const LAYOUT = {
   INSTRUCTIONS_BOTTOM_OFFSET: 50,
 } as const;
 
-/** Menu options */
-const MENU_OPTIONS = ['Start Game', 'Upgrades'] as const;
+/** Well-known menu option identifiers */
+const MENU_ID = {
+  START: 'start',
+  AUTO_START: 'auto-start',
+  UPGRADES: 'upgrades',
+} as const;
+
+/** A menu option entry with an id for action dispatch and a display label. */
+interface MenuOption {
+  id: string;
+  label: string;
+}
 
 // ============================================================================
 // Scene Implementation
@@ -84,6 +95,9 @@ class MinigameInterstitialScene implements Scene {
   /** Menu item text objects */
   private menuItems: Text[] = [];
 
+  /** The dynamically built menu options for this scene instance */
+  private menuOptions: MenuOption[] = [];
+
   /** Currently selected index */
   private selectedIndex = 0;
 
@@ -107,6 +121,9 @@ class MinigameInterstitialScene implements Scene {
 
   onEnter(): void {
     console.log('[MinigameInterstitialScene] Entering scene for minigame:', this.minigameId);
+
+    // Build dynamic menu options (must happen before createMenuItems)
+    this.buildMenuOptions();
 
     // Create background
     this.createBackground();
@@ -154,12 +171,40 @@ class MinigameInterstitialScene implements Scene {
       this.game.inputManager.unregisterContext(this.inputContext.id);
     }
 
-    // Clear menu items
+    // Clear menu items and options
     this.menuItems = [];
+    this.menuOptions = [];
     this.selectionIndicator = null;
 
     // Destroy container and children
     this.container.destroy({ children: true });
+  }
+
+  // ==========================================================================
+  // Menu Options
+  // ==========================================================================
+
+  /**
+   * Build the dynamic menu options array.
+   * Inserts "Auto Start (Lvl X)" between Start Game and Upgrades when
+   * the player has purchased at least level 1 of auto-play for this minigame.
+   */
+  private buildMenuOptions(): void {
+    const options: MenuOption[] = [
+      { id: MENU_ID.START, label: 'Start Game' },
+    ];
+
+    const autoPlayLevel = getAutoPlayLevel(this.game.store, this.minigameId);
+    if (autoPlayLevel >= 1) {
+      options.push({
+        id: MENU_ID.AUTO_START,
+        label: `Auto Start (Lvl ${autoPlayLevel})`,
+      });
+    }
+
+    options.push({ id: MENU_ID.UPGRADES, label: 'Upgrades' });
+
+    this.menuOptions = options;
   }
 
   // ==========================================================================
@@ -266,16 +311,16 @@ class MinigameInterstitialScene implements Scene {
   }
 
   /**
-   * Create menu items.
+   * Create menu items from the dynamically built menuOptions array.
    */
   private createMenuItems(): void {
     const { width } = this.game.config.canvas;
 
-    for (const [i, option] of MENU_OPTIONS.entries()) {
+    for (const [i, option] of this.menuOptions.entries()) {
       const yPos = LAYOUT.MENU_START_Y + i * LAYOUT.ITEM_HEIGHT;
 
       const text = new Text({
-        text: option,
+        text: option.label,
         style: terminalBrightStyle,
       });
       text.anchor.set(0.5, 0);
@@ -394,20 +439,41 @@ class MinigameInterstitialScene implements Scene {
    * Confirm selection.
    */
   private confirmSelection(): void {
-    const selectedOption = MENU_OPTIONS[this.selectedIndex];
+    const selectedOption = this.menuOptions[this.selectedIndex];
+    if (!selectedOption) {
+      return;
+    }
 
-    if (selectedOption === 'Start Game') {
-      console.log('[MinigameInterstitialScene] Starting minigame:', this.minigameId);
-      void this.game.switchScene(this.minigameId);
-    } else if (selectedOption === 'Upgrades') {
-      console.log('[MinigameInterstitialScene] Opening upgrades for:', this.minigameId);
-      // Register and switch to minigame upgrades scene
-      const upgradesSceneId = `minigame-upgrades-${this.minigameId}`;
-      this.game.sceneManager.register(
-        upgradesSceneId,
-        () => createMinigameUpgradesScene(this.game, this.minigameId)
-      );
-      void this.game.switchScene(upgradesSceneId);
+    switch (selectedOption.id) {
+      case MENU_ID.START:
+        console.log('[MinigameInterstitialScene] Starting minigame:', this.minigameId);
+        this.game.pendingAutoPlayLevel = 0;
+        void this.game.switchScene(this.minigameId);
+        break;
+
+      case MENU_ID.AUTO_START: {
+        const autoPlayLevel = getAutoPlayLevel(this.game.store, this.minigameId);
+        console.log(
+          '[MinigameInterstitialScene] Auto-starting minigame:',
+          this.minigameId,
+          'at AI level:',
+          autoPlayLevel
+        );
+        this.game.pendingAutoPlayLevel = autoPlayLevel;
+        void this.game.switchScene(this.minigameId);
+        break;
+      }
+
+      case MENU_ID.UPGRADES: {
+        console.log('[MinigameInterstitialScene] Opening upgrades for:', this.minigameId);
+        const upgradesSceneId = `minigame-upgrades-${this.minigameId}`;
+        this.game.sceneManager.register(
+          upgradesSceneId,
+          () => createMinigameUpgradesScene(this.game, this.minigameId)
+        );
+        void this.game.switchScene(upgradesSceneId);
+        break;
+      }
     }
   }
 
