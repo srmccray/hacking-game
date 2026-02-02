@@ -41,7 +41,7 @@ import type { Scene, GameInstance } from '../../core/types';
 import type { Game } from '../../game/Game';
 import type { InputContext } from '../../input/InputManager';
 import { INPUT_PRIORITY } from '../../input/InputManager';
-import { CodeRunnerGame, type Obstacle } from './CodeRunnerGame';
+import { CodeRunnerGame, type Obstacle, type DifficultyType } from './CodeRunnerGame';
 import { COLORS } from '../../rendering/Renderer';
 import {
   terminalDimStyle,
@@ -125,6 +125,36 @@ const codeWallStyle = new TextStyle({
   fill: COLORS.TERMINAL_GREEN,
 });
 
+/** Messages displayed when difficulty increases, keyed by difficulty type */
+const DIFFICULTY_MESSAGES: Record<DifficultyType, string[]> = {
+  spawn_rate: [
+    'FIREWALL DENSITY INCREASING',
+    'PACKET FLOOD DETECTED',
+    'INTRUSION RATE RISING',
+  ],
+  gap_width: [
+    'SECURITY PATCH APPLIED',
+    'ACCESS PORT NARROWING',
+    'ENCRYPTION LAYER ADDED',
+  ],
+  player_speed: [
+    'BANDWIDTH THROTTLED',
+    'LATENCY SPIKE',
+    'CONNECTION DEGRADING',
+  ],
+};
+
+/** Duration of the difficulty popup fade in milliseconds */
+const DIFFICULTY_POPUP_FADE_MS = 1000;
+
+/** Style for the difficulty popup text */
+const difficultyPopupStyle = new TextStyle({
+  fontFamily: FONT_FAMILY,
+  fontSize: FONT_SIZES.MEDIUM,
+  fill: '#FF4444',
+  fontWeight: 'bold',
+});
+
 // ============================================================================
 // Scene Implementation
 // ============================================================================
@@ -158,6 +188,11 @@ class CodeRunnerScene implements Scene {
   private statusText: Text | null = null;
   private resultsOverlay: Container | null = null;
   private gameArea: Container | null = null;
+
+  // Difficulty popup
+  private difficultyPopupText: Text | null = null;
+  private difficultyPopupFadeTimer: number = 0;
+  private difficultyPopupFading: boolean = false;
 
   // Player Y-axis spin state (uses scaleX for flip effect)
   private playerSpinPhase: number = 0;
@@ -262,6 +297,9 @@ class CodeRunnerScene implements Scene {
     // Update minigame logic
     this.minigame.update(deltaMs);
 
+    // Update difficulty popup fade
+    this.updateDifficultyPopupFade(deltaMs);
+
     // Update display
     this.updateDisplay();
   }
@@ -288,6 +326,7 @@ class CodeRunnerScene implements Scene {
     this.statusText = null;
     this.resultsOverlay = null;
     this.gameArea = null;
+    this.difficultyPopupText = null;
 
     // Destroy container and children
     this.container.destroy({ children: true });
@@ -316,6 +355,9 @@ class CodeRunnerScene implements Scene {
 
     // HUD
     this.createHUD();
+
+    // Difficulty popup (centered, near top of game area)
+    this.createDifficultyPopup(centerX);
 
     // Instructions
     this.createInstructions(centerX, height - LAYOUT.INSTRUCTIONS_BOTTOM_OFFSET);
@@ -450,6 +492,21 @@ class CodeRunnerScene implements Scene {
     this.statusText.x = centerX;
     this.statusText.y = y;
     this.container.addChild(this.statusText);
+  }
+
+  /**
+   * Create the difficulty popup text element (initially hidden).
+   */
+  private createDifficultyPopup(centerX: number): void {
+    this.difficultyPopupText = new Text({
+      text: '',
+      style: difficultyPopupStyle,
+    });
+    this.difficultyPopupText.anchor.set(0.5, 0.5);
+    this.difficultyPopupText.x = centerX;
+    this.difficultyPopupText.y = LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING + 80;
+    this.difficultyPopupText.alpha = 0;
+    this.container.addChild(this.difficultyPopupText);
   }
 
   // ==========================================================================
@@ -627,6 +684,41 @@ class CodeRunnerScene implements Scene {
     }
   }
 
+  /**
+   * Update the difficulty popup fade animation.
+   */
+  private updateDifficultyPopupFade(deltaMs: number): void {
+    if (!this.difficultyPopupFading || !this.difficultyPopupText) {
+      return;
+    }
+
+    this.difficultyPopupFadeTimer += deltaMs;
+    const progress = Math.min(1, this.difficultyPopupFadeTimer / DIFFICULTY_POPUP_FADE_MS);
+    this.difficultyPopupText.alpha = 1 - progress;
+
+    if (progress >= 1) {
+      this.difficultyPopupFading = false;
+      this.difficultyPopupText.alpha = 0;
+    }
+  }
+
+  /**
+   * Show a difficulty popup message based on the difficulty type.
+   */
+  private showDifficultyPopup(difficultyType: DifficultyType): void {
+    if (!this.difficultyPopupText) {
+      return;
+    }
+
+    const messages = DIFFICULTY_MESSAGES[difficultyType];
+    const message = messages[Math.floor(Math.random() * messages.length)]!;
+
+    this.difficultyPopupText.text = message;
+    this.difficultyPopupText.alpha = 1;
+    this.difficultyPopupFadeTimer = 0;
+    this.difficultyPopupFading = true;
+  }
+
   // ==========================================================================
   // Minigame Event Handlers
   // ==========================================================================
@@ -642,6 +734,13 @@ class CodeRunnerScene implements Scene {
       this.handleGameEnd();
     });
     this.unsubscribers.push(unsubEnd);
+
+    // Handle obstacle passed - show difficulty popup
+    const unsubObstaclePassed = this.minigame.on('obstacle-passed' as 'end', (payload) => {
+      const data = payload.data as { wallsPassed: number; difficultyType: DifficultyType };
+      this.showDifficultyPopup(data.difficultyType);
+    });
+    this.unsubscribers.push(unsubObstaclePassed);
   }
 
   /**

@@ -714,7 +714,10 @@ describe('SaveManager', () => {
         lastSaved: 12345,
         lastPlayed: 12346,
         resources: { money: '999', technique: '50', renown: '25' },
-        minigames: { 'code-breaker': { unlocked: true, topScores: ['100', '50'], playCount: 5, upgrades: {} } },
+        minigames: {
+          'code-breaker': { unlocked: true, topScores: ['100', '50'], playCount: 5, upgrades: {} },
+          'code-runner': { unlocked: true, topScores: ['500', '300'], playCount: 3, upgrades: {} },
+        },
         upgrades: { equipment: { 'test-upgrade': 2 }, apartment: { 'test-apt': true } },
         settings: { offlineProgressEnabled: false },
         stats: {
@@ -734,6 +737,9 @@ describe('SaveManager', () => {
       // Code Breaker scores are cleared during 2.0.0 -> 2.1.0 migration
       // (score semantics changed from point totals to codes-cracked counts)
       expect(result.state?.minigames['code-breaker']?.topScores).toEqual([]);
+      // Code Runner scores are cleared during 2.0.0 -> 2.1.0 migration
+      // (score semantics changed from distance-based to new scoring)
+      expect(result.state?.minigames['code-runner']?.topScores).toEqual([]);
       expect(result.state?.upgrades.equipment['test-upgrade']).toBe(2);
     });
   });

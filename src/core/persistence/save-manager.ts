@@ -481,22 +481,31 @@ export class SaveManager {
       migratedState.version = '2.0.0';
     }
 
-    // Version 2.0.0 -> 2.1.0: Reset Code Breaker top scores
-    // Score semantics changed from point totals to codes-cracked counts.
-    // Old scores would be meaningless with the new system.
+    // Version 2.0.0 -> 2.1.0: Reset Code Breaker and Code Runner top scores
+    // Code Breaker: Score semantics changed from point totals to codes-cracked counts.
+    // Code Runner: Score semantics changed from distance-based to new scoring.
+    // Old scores would be meaningless with the new systems.
     if (migratedState.version === '2.0.0') {
-      if (migratedState.minigames['code-breaker']) {
-        migratedState = {
-          ...migratedState,
-          minigames: {
-            ...migratedState.minigames,
-            'code-breaker': {
-              ...migratedState.minigames['code-breaker'],
-              topScores: [],
-            },
-          },
+      const minigamesCopy = { ...migratedState.minigames };
+
+      if (minigamesCopy['code-breaker']) {
+        minigamesCopy['code-breaker'] = {
+          ...minigamesCopy['code-breaker'],
+          topScores: [],
         };
       }
+
+      if (minigamesCopy['code-runner']) {
+        minigamesCopy['code-runner'] = {
+          ...minigamesCopy['code-runner'],
+          topScores: [],
+        };
+      }
+
+      migratedState = {
+        ...migratedState,
+        minigames: minigamesCopy,
+      };
       migratedState.version = '2.1.0';
     }
 
