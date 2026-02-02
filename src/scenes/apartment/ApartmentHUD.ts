@@ -2,16 +2,18 @@
  * Apartment HUD (Resource Display)
  *
  * Displays game resources (money, technique, renown) in a horizontal bar
- * positioned in the top margin above the room ceiling.
+ * positioned in the top margin above the room ceiling. Each resource shows
+ * its current amount (left-aligned) and generation rate (right-aligned).
  *
  * Layout (horizontal, top center):
  * +------------------------------------------------------------------------+
- * |   $ 1,234,567    |    TP 0    |    RP 0                                |
+ * |   $ 1,234,567  10/min  |  0 TP  1/min  |  0 RP  0/min                 |
  * +------------------------------------------------------------------------+
  *
  * Visual design:
  * - Terminal/hacker aesthetic with color-coded resources
  * - Green for money, Cyan for technique, Yellow for renown
+ * - Rates shown in dimmed color within each section
  * - Reactive updates via Zustand subscriptions
  *
  * Usage:
@@ -31,7 +33,8 @@ import {
   selectTechnique,
   selectRenown,
 } from '../../core/state/selectors';
-import { formatResource } from '../../core/resources/resource-manager';
+import { formatResource, formatDecimal, multiplyDecimals } from '../../core/resources/resource-manager';
+import { getAllGenerationRates } from '../../core/progression/auto-generation';
 import { FONT_FAMILY, FONT_SIZES } from '../../rendering/styles';
 import { COLORS } from '../../rendering/Renderer';
 
@@ -52,6 +55,9 @@ const HUD_INTERNAL_PADDING = 16;
 /** Separator character */
 const SEPARATOR = '|';
 
+/** Seconds per minute for rate conversion */
+const SECONDS_PER_MINUTE = 60;
+
 // ============================================================================
 // Resource Colors
 // ============================================================================
@@ -71,8 +77,11 @@ const RESOURCE_COLORS = {
  */
 interface HUDTextElements {
   moneyValue: Text;
+  moneyRate: Text;
   techniqueValue: Text;
+  techniqueRate: Text;
   renownValue: Text;
+  renownRate: Text;
 }
 
 // ============================================================================
@@ -101,8 +110,14 @@ export class ApartmentHUD {
   /** Reference to the game store */
   private readonly store: GameStore;
 
+  /** Reference to the game config for rate calculations */
+  private readonly config: GameConfig;
+
   /** Canvas width for positioning */
   private readonly canvasWidth: number;
+
+  /** Interval ID for periodic rate updates */
+  private rateUpdateInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Create a new ApartmentHUD instance.
@@ -118,6 +133,7 @@ export class ApartmentHUD {
   ) {
     this.store = store;
     this.parentContainer = parentContainer;
+    this.config = config;
     this.canvasWidth = config.canvas.width;
 
     // Create main container
@@ -137,6 +153,14 @@ export class ApartmentHUD {
 
     // Perform initial render from current state
     this.renderFromState();
+
+    // Perform initial rate render
+    this.updateRateDisplays();
+
+    // Set up periodic rate updates (every 2 seconds)
+    this.rateUpdateInterval = setInterval(() => {
+      this.updateRateDisplays();
+    }, 2000);
 
     // Add to parent
     parentContainer.addChild(this.container);
@@ -245,6 +269,13 @@ export class ApartmentHUD {
       fill: COLORS.TERMINAL_DIM,
     });
 
+    // Rate style - dimmed version for rate display
+    const rateStyle = new TextStyle({
+      fontFamily: FONT_FAMILY,
+      fontSize: FONT_SIZES.SMALL,
+      fill: COLORS.TERMINAL_DIM,
+    });
+
     // ========================================================================
     // Money Section (left) - left-anchored to prevent flickering
     // ========================================================================
@@ -258,6 +289,16 @@ export class ApartmentHUD {
     moneyValue.x = moneyX;
     moneyValue.y = centerY;
     this.container.addChild(moneyValue);
+
+    // Money rate - right-aligned within section (just before separator)
+    const moneyRate = new Text({
+      text: '0/min',
+      style: rateStyle,
+    });
+    moneyRate.anchor.set(1, 0.5); // Right-anchor to align before separator
+    moneyRate.x = HUD_INTERNAL_PADDING + sectionWidth - 10;
+    moneyRate.y = centerY;
+    this.container.addChild(moneyRate);
 
     // ========================================================================
     // Separator 1
@@ -287,6 +328,16 @@ export class ApartmentHUD {
     techniqueValue.y = centerY;
     this.container.addChild(techniqueValue);
 
+    // Technique rate - right-aligned within section
+    const techniqueRate = new Text({
+      text: '0/min',
+      style: rateStyle,
+    });
+    techniqueRate.anchor.set(1, 0.5);
+    techniqueRate.x = HUD_INTERNAL_PADDING + sectionWidth * 2 - 10;
+    techniqueRate.y = centerY;
+    this.container.addChild(techniqueRate);
+
     // ========================================================================
     // Separator 2
     // ========================================================================
@@ -315,10 +366,23 @@ export class ApartmentHUD {
     renownValue.y = centerY;
     this.container.addChild(renownValue);
 
+    // Renown rate - right-aligned within section
+    const renownRate = new Text({
+      text: '0/min',
+      style: rateStyle,
+    });
+    renownRate.anchor.set(1, 0.5);
+    renownRate.x = HUD_INTERNAL_PADDING + sectionWidth * 3 - 10;
+    renownRate.y = centerY;
+    this.container.addChild(renownRate);
+
     return {
       moneyValue,
+      moneyRate,
       techniqueValue,
+      techniqueRate,
       renownValue,
+      renownRate,
     };
   }
 
@@ -357,6 +421,24 @@ export class ApartmentHUD {
       }
     );
     this.unsubscribers.push(unsubRenown);
+
+    // Subscribe to minigame state changes (scores affect rates)
+    const unsubMinigames = this.store.subscribe(
+      (state) => state.minigames,
+      () => {
+        this.updateRateDisplays();
+      }
+    );
+    this.unsubscribers.push(unsubMinigames);
+
+    // Subscribe to upgrade changes (multipliers affect rates)
+    const unsubUpgrades = this.store.subscribe(
+      (state) => state.upgrades,
+      () => {
+        this.updateRateDisplays();
+      }
+    );
+    this.unsubscribers.push(unsubUpgrades);
   }
 
   /**
@@ -374,6 +456,23 @@ export class ApartmentHUD {
         this.textElements.renownValue.text = formatResource('renown', value);
         break;
     }
+  }
+
+  /**
+   * Update all rate displays from current state.
+   * Reads generation rates from auto-generation system and converts to per-minute.
+   */
+  private updateRateDisplays(): void {
+    const rates = getAllGenerationRates(this.store, this.config);
+
+    // Convert per-second rates to per-minute
+    const moneyPerMin = multiplyDecimals(rates.money, SECONDS_PER_MINUTE);
+    const techniquePerMin = multiplyDecimals(rates.technique, SECONDS_PER_MINUTE);
+    const renownPerMin = multiplyDecimals(rates.renown, SECONDS_PER_MINUTE);
+
+    this.textElements.moneyRate.text = `${formatDecimal(moneyPerMin)}/min`;
+    this.textElements.techniqueRate.text = `${formatDecimal(techniquePerMin)}/min`;
+    this.textElements.renownRate.text = `${formatDecimal(renownPerMin)}/min`;
   }
 
   /**
@@ -425,6 +524,7 @@ export class ApartmentHUD {
    */
   refresh(): void {
     this.renderFromState();
+    this.updateRateDisplays();
   }
 
   /**
@@ -432,6 +532,12 @@ export class ApartmentHUD {
    * Unsubscribes from all state changes and removes display objects.
    */
   destroy(): void {
+    // Clear rate update interval
+    if (this.rateUpdateInterval !== null) {
+      clearInterval(this.rateUpdateInterval);
+      this.rateUpdateInterval = null;
+    }
+
     // Unsubscribe from all state changes
     for (const unsubscribe of this.unsubscribers) {
       unsubscribe();
