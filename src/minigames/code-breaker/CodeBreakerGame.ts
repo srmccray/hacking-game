@@ -68,6 +68,7 @@ export type CodeBreakerEventType =
   | MinigameEventType
   | 'char-correct'
   | 'char-wrong'
+  | 'typo-used'
   | 'sequence-complete';
 
 // ============================================================================
@@ -126,6 +127,12 @@ export class CodeBreakerGame extends BaseMinigame {
 
   /** Code length reduction from upgrades (set externally before start) */
   private _codeLengthReduction: number = 0;
+
+  /** Number of typos allowed per game from upgrades (set externally before start) */
+  private _typoAllowance: number = 0;
+
+  /** Number of typos remaining in the current game */
+  private _typosRemaining: number = 0;
 
   /** Code-length milestones triggered this session (to avoid re-triggering). */
   private _triggeredMilestones: Set<number> = new Set();
@@ -193,6 +200,16 @@ export class CodeBreakerGame extends BaseMinigame {
     return this._failReason;
   }
 
+  /** Get the number of typos remaining in this game */
+  get typosRemaining(): number {
+    return this._typosRemaining;
+  }
+
+  /** Get the total typo allowance (from upgrades) */
+  get typoAllowance(): number {
+    return this._typoAllowance;
+  }
+
   /** Get the effective time limit for the current code (including scaling and bonuses) */
   get effectiveTimeLimitMs(): number {
     return this.calculateEffectiveTimeLimit();
@@ -222,6 +239,17 @@ export class CodeBreakerGame extends BaseMinigame {
     this._codeLengthReduction = reduction;
   }
 
+  /**
+   * Set the typo allowance (call before start()).
+   * This is the number of wrong inputs allowed before game over,
+   * from the Error Correction upgrade.
+   *
+   * @param count - Number of typos allowed per game
+   */
+  setTypoAllowance(count: number): void {
+    this._typoAllowance = count;
+  }
+
   // ==========================================================================
   // Lifecycle Implementation
   // ==========================================================================
@@ -234,6 +262,7 @@ export class CodeBreakerGame extends BaseMinigame {
     this._codesCracked = 0;
     this._failReason = null;
     this._totalMoneyEarned = 0;
+    this._typosRemaining = this._typoAllowance;
     this._triggeredMilestones = new Set();
 
     this.generateNewSequence();
@@ -323,11 +352,31 @@ export class CodeBreakerGame extends BaseMinigame {
   }
 
   /**
-   * Handle a wrong character input. Immediately ends the game.
+   * Handle a wrong character input.
+   * If typos remain, uses one and continues. Otherwise ends the game.
    */
   private handleWrongChar(_char: string): false {
-    this._failReason = 'wrong-input';
     this._failCount++;
+
+    if (this._typosRemaining > 0) {
+      // Use a typo allowance instead of ending
+      this._typosRemaining--;
+
+      // Emit typo-used event for UI feedback
+      this.emit('typo-used' as MinigameEventType, {
+        minigameId: this.id,
+        data: {
+          char: _char,
+          position: this._currentPosition,
+          typosRemaining: this._typosRemaining,
+        },
+      });
+
+      return false;
+    }
+
+    // No typos remaining - game over
+    this._failReason = 'wrong-input';
 
     // Emit char-wrong event (immediately before end)
     this.emit('char-wrong' as MinigameEventType, {
@@ -463,6 +512,7 @@ export class CodeBreakerGame extends BaseMinigame {
     this._previewRemainingMs = 0;
     this._failReason = null;
     this._totalMoneyEarned = 0;
+    this._typosRemaining = this._typoAllowance;
     this._triggeredMilestones = new Set();
   }
 

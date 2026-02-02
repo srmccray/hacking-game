@@ -55,6 +55,7 @@ import {
   getPerCodeTimeBonus,
   getTimeBonusMs,
   getCodeLengthReduction,
+  getTypoAllowance,
 } from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
@@ -154,7 +155,14 @@ class CodeBreakerScene implements Scene {
   private codesText: Text | null = null;
   private lengthText: Text | null = null;
   private moneyText: Text | null = null;
+  private typosText: Text | null = null;
   private statusText: Text | null = null;
+
+  /** Whether the typo allowance upgrade is active (for conditional HUD display) */
+  private hasTypoAllowance: boolean = false;
+
+  /** Timer for typo flash visual feedback (ms remaining) */
+  private typoFlashTimer: number = 0;
 
   // Results overlay
   private resultsOverlay: Container | null = null;
@@ -261,6 +269,11 @@ class CodeBreakerScene implements Scene {
     // Update minigame logic
     this.minigame.update(deltaMs);
 
+    // Decrement typo flash timer
+    if (this.typoFlashTimer > 0) {
+      this.typoFlashTimer = Math.max(0, this.typoFlashTimer - deltaMs);
+    }
+
     // Update display
     this.updateDisplay();
   }
@@ -293,6 +306,7 @@ class CodeBreakerScene implements Scene {
     this.codesText = null;
     this.lengthText = null;
     this.moneyText = null;
+    this.typosText = null;
     this.statusText = null;
     this.codeDisplayContainer = null;
     this.resultsOverlay = null;
@@ -334,6 +348,14 @@ class CodeBreakerScene implements Scene {
     if (codeLengthReduction > 0) {
       console.log(`[CodeBreakerScene] Applying code length reduction: -${codeLengthReduction}`);
       this.minigame.setCodeLengthReduction(codeLengthReduction);
+    }
+
+    // Error Correction: typo allowance
+    const typoAllowance = getTypoAllowance(store);
+    if (typoAllowance > 0) {
+      console.log(`[CodeBreakerScene] Applying typo allowance: ${typoAllowance}`);
+      this.minigame.setTypoAllowance(typoAllowance);
+      this.hasTypoAllowance = true;
     }
   }
 
@@ -501,6 +523,17 @@ class CodeBreakerScene implements Scene {
     this.moneyText.x = moneyLabel.x + 75;
     this.moneyText.y = y;
     statsContainer.addChild(this.moneyText);
+
+    // Typos remaining (shown above stats bar, right-aligned, only if upgrade active)
+    this.typosText = new Text({
+      text: '',
+      style: createTerminalStyle(COLORS.TERMINAL_CYAN, 14),
+    });
+    this.typosText.anchor.set(1, 0.5);
+    this.typosText.x = width - LAYOUT.PADDING - 20;
+    this.typosText.y = y;
+    this.typosText.visible = false;
+    statsContainer.addChild(this.typosText);
 
     this.container.addChild(statsContainer);
   }
@@ -808,6 +841,24 @@ class CodeBreakerScene implements Scene {
     if (this.moneyText) {
       this.moneyText.text = `$${this.accumulatedMoney}`;
     }
+
+    // Update typos remaining display
+    if (this.typosText && this.hasTypoAllowance) {
+      this.typosText.visible = true;
+      const remaining = this.minigame.typosRemaining;
+      this.typosText.text = `TYPOS: ${remaining}`;
+
+      // Color based on remaining: cyan = good, yellow = low, red = none
+      const color = remaining === 0
+        ? COLORS.TERMINAL_RED
+        : remaining === 1
+          ? COLORS.TERMINAL_YELLOW
+          : COLORS.TERMINAL_CYAN;
+      this.typosText.style = createTerminalStyle(
+        this.typoFlashTimer > 0 ? COLORS.TERMINAL_RED : color,
+        14
+      );
+    }
   }
 
   // ==========================================================================
@@ -832,6 +883,13 @@ class CodeBreakerScene implements Scene {
       this.handleMilestoneReached(thresholdValue);
     });
     this.unsubscribers.push(unsubMilestone);
+
+    // Handle typo used (flash visual feedback)
+    const unsubTypo = this.minigame.on('typo-used' as MinigameEventType, () => {
+      this.typoFlashTimer = 300; // 300ms flash
+      this.updateDisplay();
+    });
+    this.unsubscribers.push(unsubTypo);
 
     // Handle sequence complete (rebuild display for new code length)
     // Cast to MinigameEventType to match how CodeBreakerGame emits the event

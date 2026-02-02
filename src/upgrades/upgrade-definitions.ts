@@ -65,7 +65,8 @@ export type MinigameEffectType =
   | 'code_length_reduction' // Reduces starting code length in Code Breaker
   | 'damage_multiplier_bonus' // Adds damage multiplier bonus for Botnet Defense
   | 'health_bonus' // Adds extra HP for Botnet Defense
-  | 'auto_play_level'; // Unlocks and improves AI auto-play for a minigame
+  | 'auto_play_level' // Unlocks and improves AI auto-play for a minigame
+  | 'typo_allowance'; // Grants typo forgiveness (wrong inputs caught before crashing)
 
 /**
  * Hardware upgrade effect types (requires dual currency)
@@ -382,6 +383,26 @@ const entropyReducerUpgrade: MinigameUpgrade = {
   effectPerLevel: 1, // +1 letter per level
 };
 
+/**
+ * Error Correction (Minigame - Code Breaker)
+ * Grants typo forgiveness: wrong inputs are caught instead of ending the game.
+ * Cost: 100 TP base, +100 TP per level (100, 200, 300, 400, 500)
+ */
+const errorCorrectionUpgrade: MinigameUpgrade = {
+  id: 'error-correction',
+  name: 'Error Correction',
+  description: 'Implements parity checking on your keystrokes \u2014 wrong inputs are caught and corrected instead of crashing the hack',
+  category: 'minigame',
+  minigameId: 'code-breaker',
+  costResource: 'technique',
+  baseCost: '100',
+  maxLevel: 5,
+  costIncrement: '100', // +100 TP per level (100, 200, 300, 400, 500)
+  effectType: 'typo_allowance',
+  baseEffect: 1, // 1 typo allowed at level 1
+  effectPerLevel: 1, // +1 per level
+};
+
 // ----------------------------------------------------------------------------
 // Botnet Defense Minigame Upgrades
 // ----------------------------------------------------------------------------
@@ -508,6 +529,7 @@ const UPGRADES: Record<string, Upgrade> = {
   'central-router': centralRouterUpgrade,
   'timing-exploit': timingExploitUpgrade,
   'entropy-reducer': entropyReducerUpgrade,
+  'error-correction': errorCorrectionUpgrade,
   'payload-amplifier': payloadAmplifierUpgrade,
   'redundant-systems': redundantSystemsUpgrade,
   'auto-play-code-breaker': autoPlayCodeBreakerUpgrade,
@@ -523,7 +545,7 @@ export const UPGRADES_BY_CATEGORY: Record<UpgradeCategory, Upgrade[]> = {
   apartment: [],
   consumable: [trainingManualUpgrade],
   hardware: [bookSummarizerUpgrade],
-  minigame: [gapExpanderUpgrade, bufferOverflowUpgrade, overclockUpgrade, centralRouterUpgrade, timingExploitUpgrade, entropyReducerUpgrade, payloadAmplifierUpgrade, redundantSystemsUpgrade, autoPlayCodeBreakerUpgrade, autoPlayCodeRunnerUpgrade, autoPlayBotnetDefenseUpgrade],
+  minigame: [gapExpanderUpgrade, bufferOverflowUpgrade, overclockUpgrade, centralRouterUpgrade, timingExploitUpgrade, entropyReducerUpgrade, errorCorrectionUpgrade, payloadAmplifierUpgrade, redundantSystemsUpgrade, autoPlayCodeBreakerUpgrade, autoPlayCodeRunnerUpgrade, autoPlayBotnetDefenseUpgrade],
 };
 
 /**
@@ -900,6 +922,9 @@ export function getUpgradeEffectFormatted(store: GameStore, upgradeId: string): 
       if (mg.effectType === 'health_bonus') {
         return level > 0 ? `+${effect} HP` : '+1 HP';
       }
+      if (mg.effectType === 'typo_allowance') {
+        return level > 0 ? `${effect} typo${effect !== 1 ? 's' : ''} allowed` : '1 typo allowed';
+      }
       if (mg.effectType === 'auto_play_level') {
         return level > 0 ? `AI Lv${level}` : 'Unlocks AI Lv1';
       }
@@ -1050,6 +1075,17 @@ export function getDamageMultBonus(store: GameStore): number {
  */
 export function getHealthBonus(store: GameStore): number {
   return getUpgradeEffect(store, 'redundant-systems');
+}
+
+/**
+ * Get the Code Breaker typo allowance from the Error Correction upgrade.
+ * Returns the number of wrong inputs allowed per game before game over.
+ *
+ * @param store - The game store
+ * @returns The number of typos allowed (0 if no levels purchased)
+ */
+export function getTypoAllowance(store: GameStore): number {
+  return getUpgradeEffect(store, 'error-correction');
 }
 
 /**
