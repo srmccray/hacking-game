@@ -593,14 +593,12 @@ class BotnetDefenseScene implements Scene {
     this.gameArea.addChild(arenaBorder);
 
     // Mask to clip entities at arena boundaries.
-    // The mask is intentionally NOT added as a visible child of the container.
-    // Adding it via addChild() causes a white rectangle to render over the
-    // game area, producing a blank screen.  The mask coordinates are specified
-    // in world space so PixiJS can apply them without the mask being in the
-    // scene graph.
+    // The mask must be in the display tree for PixiJS to apply it correctly.
+    // Coordinates are relative to this.container (the mask's parent).
     const maskGraphic = new Graphics();
     maskGraphic.rect(this.gameAreaOffsetX, this.gameAreaOffsetY, arenaWidth, arenaHeight);
     maskGraphic.fill({ color: 0xffffff });
+    this.container.addChild(maskGraphic);
     this.gameArea.mask = maskGraphic;
 
     // Create shared graphics for XP gem attraction lines (below player)
