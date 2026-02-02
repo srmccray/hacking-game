@@ -446,6 +446,24 @@ export function createGameStore(initialState?: Partial<GameState>): GameStore {
       },
 
       // ======================================================================
+      // Milestone Actions
+      // ======================================================================
+
+      achieveSurvivalMilestone: (thresholdMs: number): void => {
+        set((state) => {
+          // Skip if already achieved
+          if (state.survivalMilestones.includes(thresholdMs)) {
+            return state;
+          }
+
+          return {
+            survivalMilestones: [...state.survivalMilestones, thresholdMs],
+            renownBonusPerMin: state.renownBonusPerMin + 10,
+          };
+        });
+      },
+
+      // ======================================================================
       // Settings Actions
       // ======================================================================
 
@@ -596,6 +614,8 @@ export function createGameStore(initialState?: Partial<GameState>): GameStore {
           automations: state.automations ?? {},
           settings: state.settings,
           stats: state.stats,
+          survivalMilestones: state.survivalMilestones ?? [],
+          renownBonusPerMin: state.renownBonusPerMin ?? 0,
         });
       },
     }))

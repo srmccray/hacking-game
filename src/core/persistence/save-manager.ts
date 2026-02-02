@@ -329,6 +329,8 @@ export class SaveManager {
         totalOfflineTime: state.stats.totalOfflineTime,
         totalResourcesEarned: { ...state.stats.totalResourcesEarned },
       },
+      survivalMilestones: [...(state.survivalMilestones ?? [])],
+      renownBonusPerMin: state.renownBonusPerMin ?? 0,
     };
   }
 

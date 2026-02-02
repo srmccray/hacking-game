@@ -386,6 +386,8 @@ describe('game-store', () => {
               renown: '1000',
             },
           },
+          survivalMilestones: [300000],
+          renownBonusPerMin: 10,
         };
 
         store.getState().loadState(savedState);

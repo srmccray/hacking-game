@@ -186,6 +186,11 @@ export interface GameState {
   automations: AutomationsState;
   settings: SettingsState;
   stats: StatsState;
+
+  /** Survival milestone thresholds (in ms) that have been achieved */
+  survivalMilestones: number[];
+  /** Accumulated renown bonus per minute from survival milestones (+10 per milestone) */
+  renownBonusPerMin: number;
 }
 
 // ============================================================================
@@ -330,6 +335,14 @@ export interface GameActions {
    * unlock for the session).
    */
   toggleTestMode: () => void;
+
+  // Milestone actions
+  /**
+   * Record a survival milestone achievement. Adds the threshold to the array
+   * if not already present and increments renownBonusPerMin by 10.
+   * @param thresholdMs - The milestone threshold in milliseconds
+   */
+  achieveSurvivalMilestone: (thresholdMs: number) => void;
 
   // Save/load actions
   /**
@@ -520,6 +533,9 @@ export function createInitialGameState(): GameState {
         renown: '0',
       },
     },
+
+    survivalMilestones: [],
+    renownBonusPerMin: 0,
   };
 }
 

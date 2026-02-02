@@ -72,7 +72,7 @@ interface MenuItem {
 /**
  * Menu state.
  */
-type MenuState = 'main' | 'confirm-exit' | 'settings';
+type MenuState = 'main' | 'confirm-exit' | 'confirm-reset' | 'settings';
 
 // ============================================================================
 // InGameMenu Class
@@ -613,7 +613,7 @@ export class InGameMenu {
 
     // Dialog box
     const boxWidth = 360;
-    const boxHeight = 200;
+    const boxHeight = 272;
     const boxX = (width - boxWidth) / 2;
     const boxY = (height - boxHeight) / 2;
 
@@ -664,75 +664,35 @@ export class InGameMenu {
     // Settings items
     const settingsStartY = boxY + 60;
     const itemHeight = 36;
+    const settingsItemCount = 5; // Test Mode, Offline Progress, Grant Resources, Reset Progress, Back
 
-    // Test Mode toggle
-    const testModeText = new Text({
-      text: this.getSettingsItemLabel(0),
-      style: terminalBrightStyle,
-    });
-    testModeText.anchor.set(0.5, 0);
-    testModeText.x = width / 2;
-    testModeText.y = settingsStartY;
-    testModeText.eventMode = 'static';
-    testModeText.cursor = 'pointer';
-    testModeText.on('pointerdown', () => {
-      this.settingsSelectedIndex = 0;
-      this.toggleSettingsItem(0);
-    });
-    testModeText.on('pointerover', () => {
-      if (this.settingsSelectedIndex !== 0) {
-        this.settingsSelectedIndex = 0;
-        this.updateSettingsSelection();
-      }
-    });
-    this.settingsContainer.addChild(testModeText);
-    this.settingsTexts.push(testModeText);
+    for (let i = 0; i < settingsItemCount; i++) {
+      const isSelected = i === 0;
+      const itemText = new Text({
+        text: this.getSettingsItemLabel(i, isSelected),
+        style: isSelected ? terminalBrightStyle : terminalStyle,
+      });
+      itemText.anchor.set(0.5, 0);
+      itemText.x = width / 2;
+      itemText.y = settingsStartY + itemHeight * i;
+      itemText.eventMode = 'static';
+      itemText.cursor = 'pointer';
 
-    // Offline Progress toggle
-    const offlineText = new Text({
-      text: this.getSettingsItemLabel(1),
-      style: terminalStyle,
-    });
-    offlineText.anchor.set(0.5, 0);
-    offlineText.x = width / 2;
-    offlineText.y = settingsStartY + itemHeight;
-    offlineText.eventMode = 'static';
-    offlineText.cursor = 'pointer';
-    offlineText.on('pointerdown', () => {
-      this.settingsSelectedIndex = 1;
-      this.toggleSettingsItem(1);
-    });
-    offlineText.on('pointerover', () => {
-      if (this.settingsSelectedIndex !== 1) {
-        this.settingsSelectedIndex = 1;
-        this.updateSettingsSelection();
-      }
-    });
-    this.settingsContainer.addChild(offlineText);
-    this.settingsTexts.push(offlineText);
+      const idx = i;
+      itemText.on('pointerdown', () => {
+        this.settingsSelectedIndex = idx;
+        this.executeSettingsItem(idx);
+      });
+      itemText.on('pointerover', () => {
+        if (this.settingsSelectedIndex !== idx) {
+          this.settingsSelectedIndex = idx;
+          this.updateSettingsSelection();
+        }
+      });
 
-    // Back item
-    const backText = new Text({
-      text: '  [ Back ]',
-      style: terminalStyle,
-    });
-    backText.anchor.set(0.5, 0);
-    backText.x = width / 2;
-    backText.y = settingsStartY + itemHeight * 2;
-    backText.eventMode = 'static';
-    backText.cursor = 'pointer';
-    backText.on('pointerdown', () => {
-      this.settingsSelectedIndex = 2;
-      this.closeSettings();
-    });
-    backText.on('pointerover', () => {
-      if (this.settingsSelectedIndex !== 2) {
-        this.settingsSelectedIndex = 2;
-        this.updateSettingsSelection();
-      }
-    });
-    this.settingsContainer.addChild(backText);
-    this.settingsTexts.push(backText);
+      this.settingsContainer.addChild(itemText);
+      this.settingsTexts.push(itemText);
+    }
 
     // Hint
     const hint = new Text({
@@ -762,6 +722,10 @@ export class InGameMenu {
         return prefix + 'Offline Progress: ' + (offlineOn ? '[ON]' : '[OFF]');
       }
       case 2:
+        return prefix + 'Grant Resources (Debug)';
+      case 3:
+        return prefix + 'Reset Progress';
+      case 4:
         return prefix + '[ Back ]';
       default:
         return '';
@@ -769,21 +733,36 @@ export class InGameMenu {
   }
 
   /**
-   * Toggle a settings item by index.
+   * Execute a settings item action by index.
    */
-  private toggleSettingsItem(index: number): void {
+  private executeSettingsItem(index: number): void {
     const actions = this.game.store.getState();
 
     switch (index) {
       case 0:
         actions.toggleTestMode();
+        this.updateSettingsSelection();
         break;
       case 1:
         actions.toggleOfflineProgress();
+        this.updateSettingsSelection();
+        break;
+      case 2:
+        // Grant Resources (Debug)
+        actions.addResource('money', '1000000000000');
+        actions.addResource('technique', '1000000000000');
+        actions.addResource('renown', '1000000000000');
+        this.showFeedback('Granted 1T of each resource!');
+        break;
+      case 3:
+        // Reset Progress - show confirmation
+        this.showResetConfirmDialog();
+        break;
+      case 4:
+        // Back
+        this.closeSettings();
         break;
     }
-
-    this.updateSettingsSelection();
   }
 
   /**
@@ -969,7 +948,7 @@ export class InGameMenu {
    * Handle left navigation (confirm dialog).
    */
   private handleLeft(): void {
-    if (this.menuState === 'confirm-exit') {
+    if (this.menuState === 'confirm-exit' || this.menuState === 'confirm-reset') {
       this.confirmSelectedIndex = 0;
       this.updateConfirmSelection();
     }
@@ -979,7 +958,7 @@ export class InGameMenu {
    * Handle right navigation (confirm dialog).
    */
   private handleRight(): void {
-    if (this.menuState === 'confirm-exit') {
+    if (this.menuState === 'confirm-exit' || this.menuState === 'confirm-reset') {
       this.confirmSelectedIndex = 1;
       this.updateConfirmSelection();
     }
@@ -997,13 +976,14 @@ export class InGameMenu {
       } else {
         this.cancelConfirm();
       }
-    } else if (this.menuState === 'settings') {
-      if (this.settingsSelectedIndex === 2) {
-        // Back
-        this.closeSettings();
+    } else if (this.menuState === 'confirm-reset') {
+      if (this.confirmSelectedIndex === 0) {
+        this.confirmReset();
       } else {
-        this.toggleSettingsItem(this.settingsSelectedIndex);
+        this.cancelResetConfirm();
       }
+    } else if (this.menuState === 'settings') {
+      this.executeSettingsItem(this.settingsSelectedIndex);
     }
   }
 
@@ -1013,6 +993,8 @@ export class InGameMenu {
   private handleEscape(): void {
     if (this.menuState === 'confirm-exit') {
       this.cancelConfirm();
+    } else if (this.menuState === 'confirm-reset') {
+      this.cancelResetConfirm();
     } else if (this.menuState === 'settings') {
       this.closeSettings();
     } else {
@@ -1026,6 +1008,8 @@ export class InGameMenu {
   private handleQuickYes(): void {
     if (this.menuState === 'confirm-exit') {
       void this.confirmExit();
+    } else if (this.menuState === 'confirm-reset') {
+      this.confirmReset();
     }
   }
 
@@ -1035,6 +1019,8 @@ export class InGameMenu {
   private handleQuickNo(): void {
     if (this.menuState === 'confirm-exit') {
       this.cancelConfirm();
+    } else if (this.menuState === 'confirm-reset') {
+      this.cancelResetConfirm();
     }
   }
 
@@ -1121,6 +1107,180 @@ export class InGameMenu {
     if (this.confirmContainer) {
       this.confirmContainer.visible = false;
     }
+  }
+
+  /**
+   * Show the reset progress confirmation dialog.
+   * Reuses the existing confirm dialog container with different text.
+   */
+  private showResetConfirmDialog(): void {
+    this.menuState = 'confirm-reset';
+    this.confirmSelectedIndex = 1; // Default to "No"
+
+    // Rebuild the confirm dialog with reset-specific text
+    if (this.confirmContainer) {
+      this.confirmContainer.destroy({ children: true });
+    }
+    this.confirmTexts = [];
+    this.createResetConfirmDialog();
+
+    if (this.confirmContainer) {
+      this.confirmContainer.visible = true;
+    }
+
+    this.updateConfirmSelection();
+  }
+
+  /**
+   * Create the reset progress confirmation dialog.
+   */
+  private createResetConfirmDialog(): void {
+    const width = this.game.config.canvas.width;
+    const height = this.game.config.canvas.height;
+
+    this.confirmContainer = new Container();
+    this.confirmContainer.label = 'confirm-reset-dialog';
+    this.confirmContainer.visible = false;
+    this.confirmContainer.zIndex = 150;
+    this.container.addChild(this.confirmContainer);
+
+    // Overlay
+    const overlay = new Graphics();
+    overlay.fill({ color: 0x000000, alpha: 0.5 });
+    overlay.rect(0, 0, width, height);
+    overlay.fill();
+    overlay.eventMode = 'static';
+    this.confirmContainer.addChild(overlay);
+
+    // Dialog box
+    const boxWidth = 340;
+    const boxHeight = 160;
+    const boxX = (width - boxWidth) / 2;
+    const boxY = (height - boxHeight) / 2;
+
+    const box = new Graphics();
+    box.fill({ color: 0x0a0a0a, alpha: 0.98 });
+    box.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+    box.fill();
+    box.stroke({ color: COLORS.TERMINAL_DIM, width: 1 });
+    box.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+    box.stroke();
+    box.stroke({ color: COLORS.TERMINAL_RED ?? COLORS.TERMINAL_GREEN, width: 1 });
+    box.roundRect(boxX + 4, boxY + 4, boxWidth - 8, boxHeight - 8, 2);
+    box.stroke();
+    box.eventMode = 'static';
+    this.confirmContainer.addChild(box);
+
+    // Title
+    const dialogTitleStyle = new TextStyle({
+      fontFamily: FONT_FAMILY,
+      fontSize: 20,
+      fill: COLORS.TERMINAL_RED ?? COLORS.TERMINAL_GREEN,
+      fontWeight: 'bold',
+      dropShadow: {
+        alpha: 0.7,
+        blur: 4,
+        color: COLORS.TERMINAL_RED ?? COLORS.TERMINAL_BRIGHT,
+        distance: 0,
+      },
+    });
+    const title = new Text({
+      text: 'RESET PROGRESS?',
+      style: dialogTitleStyle,
+    });
+    title.anchor.set(0.5, 0);
+    title.x = width / 2;
+    title.y = boxY + 18;
+    this.confirmContainer.addChild(title);
+
+    // Message
+    const message = new Text({
+      text: 'Are you sure? This cannot be undone.',
+      style: terminalStyle,
+    });
+    message.anchor.set(0.5, 0);
+    message.x = width / 2;
+    message.y = boxY + 55;
+    this.confirmContainer.addChild(message);
+
+    // Yes option
+    const yesText = new Text({
+      text: '  [ YES ]',
+      style: terminalStyle,
+    });
+    yesText.anchor.set(0.5, 0);
+    yesText.x = boxX + boxWidth / 3;
+    yesText.y = boxY + boxHeight - 60;
+    yesText.eventMode = 'static';
+    yesText.cursor = 'pointer';
+    yesText.on('pointerdown', () => this.confirmReset());
+    yesText.on('pointerover', () => {
+      this.confirmSelectedIndex = 0;
+      this.updateConfirmSelection();
+    });
+    this.confirmContainer.addChild(yesText);
+    this.confirmTexts.push(yesText);
+
+    // No option
+    const noText = new Text({
+      text: '> [ NO ]',
+      style: terminalBrightStyle,
+    });
+    noText.anchor.set(0.5, 0);
+    noText.x = boxX + (boxWidth * 2) / 3;
+    noText.y = boxY + boxHeight - 60;
+    noText.eventMode = 'static';
+    noText.cursor = 'pointer';
+    noText.on('pointerdown', () => this.cancelResetConfirm());
+    noText.on('pointerover', () => {
+      this.confirmSelectedIndex = 1;
+      this.updateConfirmSelection();
+    });
+    this.confirmContainer.addChild(noText);
+    this.confirmTexts.push(noText);
+
+    // Hint
+    const hint = new Text({
+      text: 'Y/N or Arrows + Enter',
+      style: terminalSmallStyle,
+    });
+    hint.anchor.set(0.5, 0);
+    hint.x = width / 2;
+    hint.y = boxY + boxHeight - 25;
+    this.confirmContainer.addChild(hint);
+  }
+
+  /**
+   * Cancel the reset confirmation and return to settings.
+   */
+  private cancelResetConfirm(): void {
+    this.menuState = 'settings';
+
+    if (this.confirmContainer) {
+      this.confirmContainer.visible = false;
+    }
+
+    // Rebuild the exit confirm dialog so it is ready if needed later
+    if (this.confirmContainer) {
+      this.confirmContainer.destroy({ children: true });
+    }
+    this.confirmTexts = [];
+    this.createConfirmDialog();
+  }
+
+  /**
+   * Confirm reset: wipe all game state and return to main menu.
+   */
+  private confirmReset(): void {
+    console.log('[InGameMenu] Reset confirmed');
+
+    this.game.store.getState().resetGame();
+
+    // Close the menu
+    this.hide();
+
+    // Go to main menu
+    void this.game.switchScene('main-menu');
   }
 
   /**

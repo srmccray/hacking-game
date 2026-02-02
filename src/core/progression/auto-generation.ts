@@ -169,6 +169,13 @@ export function getAllGenerationRates(store: GameStore, config: GameConfig): {
     }
   }
 
+  // Add passive renown from survival milestones (renownBonusPerMin -> per second)
+  const renownBonusPerMin = state.renownBonusPerMin ?? 0;
+  if (renownBonusPerMin > 0) {
+    const renownBonusPerSecond = divideDecimals(String(renownBonusPerMin), '60');
+    renownRate = addDecimals(renownRate, renownBonusPerSecond);
+  }
+
   return {
     money: getMoneyGenerationRate(store, config),
     technique: techniqueRate,
