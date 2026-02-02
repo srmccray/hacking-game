@@ -179,6 +179,15 @@ class BotnetDefenseScene implements Scene {
   /** Whether the level-up overlay is currently showing */
   private showingLevelUp: boolean = false;
 
+  /** Milestone overlay container */
+  private milestoneOverlay: Container | null = null;
+
+  /** Whether the milestone overlay is currently showing */
+  private showingMilestone: boolean = false;
+
+  /** The milestone threshold value currently being displayed */
+  private pendingMilestoneThreshold: number = 0;
+
   /** Currently highlighted card index (0, 1, or 2) for arrow key navigation */
   private levelUpSelectedIndex: number = 0;
 
@@ -303,8 +312,8 @@ class BotnetDefenseScene implements Scene {
       return;
     }
 
-    // Don't process game updates while level-up overlay is active
-    if (this.showingLevelUp) {
+    // Don't process game updates while level-up or milestone overlay is active
+    if (this.showingLevelUp || this.showingMilestone) {
       return;
     }
 
@@ -386,6 +395,7 @@ class BotnetDefenseScene implements Scene {
     this.xpLevelText = null;
     this.resultsOverlay = null;
     this.levelUpOverlay = null;
+    this.milestoneOverlay = null;
     this.cardBorders = [];
 
     // Destroy container and children
@@ -1107,6 +1117,13 @@ class BotnetDefenseScene implements Scene {
       this.handleGameEnd();
     });
     this.unsubscribers.push(unsubEnd);
+
+    // Handle survival milestone reached
+    const unsubMilestone = this.minigame.on('milestone-reached' as import('../BaseMinigame').MinigameEventType, (payload) => {
+      const thresholdMs = (payload.data as { thresholdMs: number }).thresholdMs;
+      this.handleMilestoneReached(thresholdMs);
+    });
+    this.unsubscribers.push(unsubMilestone);
   }
 
   /**
@@ -1500,6 +1517,166 @@ class BotnetDefenseScene implements Scene {
   }
 
   // ==========================================================================
+  // Survival Milestone Overlay
+  // ==========================================================================
+
+  /**
+   * Handle a survival milestone being reached.
+   * Checks if the milestone has already been achieved globally before showing the overlay.
+   *
+   * @param thresholdMs - The milestone threshold in milliseconds
+   */
+  private handleMilestoneReached(thresholdMs: number): void {
+    // Check if already achieved globally
+    const storeState = this.game.store.getState();
+    if (storeState.survivalMilestones.includes(thresholdMs)) {
+      // Already achieved globally, just resume
+      if (this.minigame?.isPaused) {
+        this.minigame.resume();
+      }
+      return;
+    }
+
+    this.pendingMilestoneThreshold = thresholdMs;
+    this.showMilestoneOverlay(thresholdMs);
+  }
+
+  /**
+   * Show the survival milestone overlay.
+   * Follows the same layout and styling pattern as the level-up overlay.
+   *
+   * @param thresholdMs - The milestone threshold in milliseconds
+   */
+  private showMilestoneOverlay(thresholdMs: number): void {
+    if (this.showingMilestone) {
+      return;
+    }
+
+    this.showingMilestone = true;
+
+    const canvasWidth = (this.game.config as { canvas: { width: number; height: number } }).canvas.width;
+    const canvasHeight = (this.game.config as { canvas: { width: number; height: number } }).canvas.height;
+
+    this.milestoneOverlay = new Container();
+    this.milestoneOverlay.label = 'milestone-overlay';
+
+    // Semi-transparent dark background
+    const bg = new Graphics();
+    bg.rect(0, 0, canvasWidth, canvasHeight);
+    bg.fill({ color: 0x000000, alpha: 0.80 });
+    this.milestoneOverlay.addChild(bg);
+
+    // Box dimensions
+    const boxWidth = 440;
+    const boxHeight = 240;
+    const boxX = (canvasWidth - boxWidth) / 2;
+    const boxY = (canvasHeight - boxHeight) / 2;
+
+    // Box fill
+    const boxFill = new Graphics();
+    boxFill.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
+    boxFill.fill({ color: COLORS.BACKGROUND });
+    this.milestoneOverlay.addChild(boxFill);
+
+    // Box border
+    const boxBorder = new Graphics();
+    boxBorder.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
+    boxBorder.stroke({ color: COLORS.TERMINAL_CYAN, width: 2 });
+    this.milestoneOverlay.addChild(boxBorder);
+
+    // Title
+    const title = new Text({
+      text: '[ REPUTATION EARNED ]',
+      style: createTerminalStyle(COLORS.TERMINAL_CYAN, FONT_SIZES.TITLE, true),
+    });
+    title.anchor.set(0.5, 0);
+    title.x = canvasWidth / 2;
+    title.y = boxY + 20;
+    this.milestoneOverlay.addChild(title);
+
+    // Survival time reached
+    const minutes = Math.floor(thresholdMs / 60000);
+    const timeText = new Text({
+      text: `${minutes} MINUTE SURVIVAL`,
+      style: createTerminalStyle(COLORS.TERMINAL_GREEN, FONT_SIZES.MEDIUM, true),
+    });
+    timeText.anchor.set(0.5, 0);
+    timeText.x = canvasWidth / 2;
+    timeText.y = boxY + 60;
+    this.milestoneOverlay.addChild(timeText);
+
+    // Flavor text
+    const flavorText = new Text({
+      text: 'Your survival prowess has earned recognition\nin the hacking community.',
+      style: new TextStyle({
+        fontFamily: FONT_FAMILY,
+        fontSize: FONT_SIZES.NORMAL,
+        fill: COLORS.TERMINAL_DIM,
+        align: 'center',
+        wordWrap: true,
+        wordWrapWidth: boxWidth - 40,
+      }),
+    });
+    flavorText.anchor.set(0.5, 0);
+    flavorText.x = canvasWidth / 2;
+    flavorText.y = boxY + 95;
+    this.milestoneOverlay.addChild(flavorText);
+
+    // Reward line
+    const rewardText = new Text({
+      text: '+10 Renown/min',
+      style: createTerminalStyle(COLORS.TERMINAL_BRIGHT, FONT_SIZES.MEDIUM, true),
+    });
+    rewardText.anchor.set(0.5, 0);
+    rewardText.x = canvasWidth / 2;
+    rewardText.y = boxY + 150;
+    this.milestoneOverlay.addChild(rewardText);
+
+    // Dismiss instructions
+    const instructions = new Text({
+      text: 'Press any key or click to continue',
+      style: terminalDimStyle,
+    });
+    instructions.anchor.set(0.5, 0);
+    instructions.x = canvasWidth / 2;
+    instructions.y = boxY + boxHeight - 35;
+    this.milestoneOverlay.addChild(instructions);
+
+    this.container.addChild(this.milestoneOverlay);
+  }
+
+  /**
+   * Dismiss the milestone overlay, apply the reward, and resume gameplay.
+   */
+  private dismissMilestoneOverlay(): void {
+    if (!this.showingMilestone) {
+      return;
+    }
+
+    // Apply the milestone reward via game store
+    const storeState = this.game.store.getState();
+    storeState.achieveSurvivalMilestone(this.pendingMilestoneThreshold);
+
+    // Remove overlay
+    if (this.milestoneOverlay) {
+      this.container.removeChild(this.milestoneOverlay);
+      this.milestoneOverlay.destroy({ children: true });
+      this.milestoneOverlay = null;
+    }
+
+    this.showingMilestone = false;
+    this.pendingMilestoneThreshold = 0;
+
+    // Resume the game
+    if (this.minigame?.isPaused) {
+      this.minigame.resume();
+    }
+
+    // Refresh display immediately
+    this.updateDisplay();
+  }
+
+  // ==========================================================================
   // Input Handling
   // ==========================================================================
 
@@ -1595,6 +1772,11 @@ class BotnetDefenseScene implements Scene {
    * Handle escape key.
    */
   private handleEscape(): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (this.showingLevelUp) {
       // During level-up, ESC does nothing - player must pick an upgrade
       return;
@@ -1618,6 +1800,11 @@ class BotnetDefenseScene implements Scene {
    * Handle enter key.
    */
   private handleEnter(): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (this.showingLevelUp) {
       // Confirm the currently highlighted upgrade card
       this.confirmLevelUpChoice(this.levelUpSelectedIndex);
@@ -1641,6 +1828,11 @@ class BotnetDefenseScene implements Scene {
    * @param index - The 0-based card index (0 for Digit1, 1 for Digit2, 2 for Digit3)
    */
   private handleLevelUpDigit(index: number): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (!this.showingLevelUp) {
       return;
     }
@@ -1659,6 +1851,11 @@ class BotnetDefenseScene implements Scene {
    * @param direction - -1 for left, +1 for right
    */
   private handleLevelUpNav(direction: number): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (!this.showingLevelUp) {
       return;
     }

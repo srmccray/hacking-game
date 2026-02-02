@@ -90,7 +90,7 @@ const PING_PROJECTILE_LIFETIME = 2000;
 const PING_COOLDOWN_MS = 800;
 
 /** Ping weapon damage (level 1). */
-const PING_DAMAGE = 1;
+const PING_DAMAGE = 2;
 
 /** Ping weapon projectile count (level 1). */
 const PING_PROJECTILE_COUNT = 1;
@@ -154,6 +154,9 @@ const EXPLOIT_HOMING_RATE = 4.0;
 
 /** Default enemy collision radius (used for edge spawn margin calculation). */
 const DEFAULT_ENEMY_RADIUS = 10;
+
+/** Survival milestone thresholds in milliseconds (5min, 10min, 15min). */
+const SURVIVAL_MILESTONE_THRESHOLDS: readonly number[] = [300000, 600000, 900000] as const;
 
 // ============================================================================
 // Input Types
@@ -246,6 +249,9 @@ export class BotnetDefenseGame extends BaseMinigame {
   /** Accumulated money earned. */
   private _moneyEarned: number = 0;
 
+  /** Survival milestones triggered this session (to avoid re-triggering). */
+  private _triggeredMilestones: Set<number> = new Set();
+
   // ==========================================================================
   // Input State
   // ==========================================================================
@@ -295,6 +301,7 @@ export class BotnetDefenseGame extends BaseMinigame {
     this._isLevelingUp = false;
     this._upgradeChoices = [];
     this._moneyEarned = 0;
+    this._triggeredMilestones = new Set();
     this._spawnTimer = 0;
     this._input = { left: false, right: false, up: false, down: false };
 
@@ -357,6 +364,9 @@ export class BotnetDefenseGame extends BaseMinigame {
     // Update running score
     const survivalSeconds = Math.floor(this._playTimeMs / 1000);
     this._score = this._kills * this.config.killPoints + survivalSeconds * this.config.timePoints;
+
+    // Check survival milestones
+    this.checkSurvivalMilestones();
 
     // Check for player death
     if (this._player.hp <= 0) {
@@ -570,8 +580,8 @@ export class BotnetDefenseGame extends BaseMinigame {
       this._projectiles.push(projectile);
     }
 
-    // Set weapon cooldown
-    weapon.cooldownRemaining = PING_COOLDOWN_MS;
+    // Set weapon cooldown (reduced by level, minimum 300ms)
+    weapon.cooldownRemaining = Math.max(300, PING_COOLDOWN_MS - weapon.level * 100);
 
     // Emit weapon-fired event
     this.emit('weapon-fired' as MinigameEventType, {
@@ -1413,7 +1423,7 @@ export class BotnetDefenseGame extends BaseMinigame {
   private getUpgradeWeaponDescription(type: WeaponType): string {
     switch (type) {
       case 'ping':
-        return 'Adds more projectiles and reduces cooldown.';
+        return 'Increases rate of fire.';
       case 'firewall':
         return 'Adds another rotating barrier and increases damage.';
       case 'port-scanner':
@@ -1449,6 +1459,32 @@ export class BotnetDefenseGame extends BaseMinigame {
   }
 
   // ==========================================================================
+  // Private Methods - Survival Milestones
+  // ==========================================================================
+
+  /**
+   * Check if any survival milestone thresholds have been crossed.
+   * Emits a 'milestone-reached' event for each newly crossed threshold
+   * that hasn't been triggered in this session. Pauses the game on trigger.
+   */
+  private checkSurvivalMilestones(): void {
+    for (const threshold of SURVIVAL_MILESTONE_THRESHOLDS) {
+      if (this._playTimeMs >= threshold && !this._triggeredMilestones.has(threshold)) {
+        this._triggeredMilestones.add(threshold);
+        this.pause();
+        this.emit('milestone-reached' as MinigameEventType, {
+          minigameId: this.id,
+          data: {
+            thresholdMs: threshold,
+          },
+        });
+        // Only trigger one milestone per frame
+        return;
+      }
+    }
+  }
+
+  // ==========================================================================
   // State Management
   // ==========================================================================
 
@@ -1470,6 +1506,7 @@ export class BotnetDefenseGame extends BaseMinigame {
     this._isLevelingUp = false;
     this._upgradeChoices = [];
     this._moneyEarned = 0;
+    this._triggeredMilestones = new Set();
     this._spawnTimer = 0;
     this._input = { left: false, right: false, up: false, down: false };
   }
