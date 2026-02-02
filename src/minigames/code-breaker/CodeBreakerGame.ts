@@ -3,7 +3,7 @@
  *
  * A per-code countdown challenge where players type characters to match a target
  * sequence before time runs out. Features:
- * - Expanded character set (A-Z, 0-9, !@#$%^&* = 44 characters)
+ * - Character set (A-Z = 26 letters)
  * - Per-code timer that resets on each successful crack
  * - Escalating code length (increases by 1 per successful crack)
  * - Immediate failure on wrong input or timer expiry

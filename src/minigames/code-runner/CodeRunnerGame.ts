@@ -232,6 +232,15 @@ export class CodeRunnerGame extends BaseMinigame {
     return { ...this.config.playerHitboxSize };
   }
 
+  /** Get the current difficulty penalty counts */
+  get penaltyCounts(): { spawnRate: number; gapWidth: number; playerSpeed: number } {
+    return {
+      spawnRate: this._spawnRatePenalty,
+      gapWidth: this._gapWidthPenalty,
+      playerSpeed: this._playerSpeedPenalty,
+    };
+  }
+
   // ==========================================================================
   // Lifecycle Implementation
   // ==========================================================================

@@ -85,8 +85,8 @@ describe('CodeBreakerGame', () => {
       }
     });
 
-    it('should have 44 characters in the default character set', () => {
-      expect(defaultConfig.characterSet.length).toBe(44);
+    it('should have 26 characters in the default character set', () => {
+      expect(defaultConfig.characterSet.length).toBe(26);
     });
 
     it('should reset input state on start', () => {

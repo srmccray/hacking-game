@@ -17,6 +17,7 @@
 import { toDecimal, addDecimals, multiplyDecimals, divideDecimals, ZERO } from '../resources/resource-manager';
 import type { GameStore } from '../state/game-store';
 import type { GameConfig, AutoGenerationConfig } from '../../game/GameConfig';
+import { getAllAutomations, isAutomationEnabled } from './automations';
 
 // ============================================================================
 // Rate Calculation
@@ -106,15 +107,56 @@ export function getAutoGenerationMultiplier(store: GameStore): string {
  * @param config - Game configuration
  * @returns Object with rates for each resource type
  */
+/**
+ * Resource output definition for an automation.
+ * Maps automation ID to the resource it produces and how much per trigger.
+ */
+const AUTOMATION_RESOURCE_OUTPUT: Record<string, { resource: 'technique' | 'renown'; amountPerTrigger: string }> = {
+  'book-summarizer': { resource: 'technique', amountPerTrigger: '1' },
+};
+
 export function getAllGenerationRates(store: GameStore, config: GameConfig): {
   money: string;
   technique: string;
   renown: string;
 } {
+  let techniqueRate = ZERO;
+  let renownRate = ZERO;
+
+  // Calculate rates from enabled automations
+  const state = store.getState();
+  for (const definition of getAllAutomations()) {
+    // Skip if automation upgrade not purchased
+    if (!isAutomationEnabled(store, definition.id)) {
+      continue;
+    }
+
+    // Skip if user has toggled this automation off
+    const automationState = state.automations[definition.id];
+    if (!automationState?.enabled) {
+      continue;
+    }
+
+    const output = AUTOMATION_RESOURCE_OUTPUT[definition.id];
+    if (!output) {
+      continue;
+    }
+
+    // Rate = amountPerTrigger / (intervalMs / 1000) => amount per second
+    const intervalSeconds = String(definition.intervalMs / 1000);
+    const ratePerSecond = divideDecimals(output.amountPerTrigger, intervalSeconds);
+
+    if (output.resource === 'technique') {
+      techniqueRate = addDecimals(techniqueRate, ratePerSecond);
+    } else if (output.resource === 'renown') {
+      renownRate = addDecimals(renownRate, ratePerSecond);
+    }
+  }
+
   return {
     money: getMoneyGenerationRate(store, config),
-    technique: ZERO, // Placeholder for MVP
-    renown: ZERO, // Placeholder for MVP
+    technique: techniqueRate,
+    renown: renownRate,
   };
 }
 

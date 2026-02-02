@@ -185,6 +185,7 @@ class CodeRunnerScene implements Scene {
   private playerGraphic: Graphics | null = null;
   private readonly obstacleContainersById: Map<number, Container> = new Map();
   private distanceText: Text | null = null;
+  private difficultyStatsText: Text | null = null;
   private statusText: Text | null = null;
   private resultsOverlay: Container | null = null;
   private gameArea: Container | null = null;
@@ -323,6 +324,7 @@ class CodeRunnerScene implements Scene {
     this.playerGraphic = null;
     this.obstacleContainersById.clear();
     this.distanceText = null;
+    this.difficultyStatsText = null;
     this.statusText = null;
     this.resultsOverlay = null;
     this.gameArea = null;
@@ -476,6 +478,21 @@ class CodeRunnerScene implements Scene {
     this.distanceText.x = wallsLabel.x + 80;
     this.distanceText.y = LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING + 30;
     hudContainer.addChild(this.distanceText);
+
+    // Difficulty stats (compact row below walls count)
+    const difficultyStatsStyle = new TextStyle({
+      fontFamily: FONT_FAMILY,
+      fontSize: FONT_SIZES.SMALL,
+      fill: COLORS.TERMINAL_DIM,
+    });
+    this.difficultyStatsText = new Text({
+      text: 'FIREWALL: 0 | GAP: 0 | SPEED: 0',
+      style: difficultyStatsStyle,
+    });
+    this.difficultyStatsText.anchor.set(0, 0.5);
+    this.difficultyStatsText.x = LAYOUT.PADDING + 20;
+    this.difficultyStatsText.y = LAYOUT.HEADER_HEIGHT + LAYOUT.PADDING + 50;
+    hudContainer.addChild(this.difficultyStatsText);
 
     this.container.addChild(hudContainer);
   }
@@ -681,6 +698,16 @@ class CodeRunnerScene implements Scene {
   private updateHUD(wallsPassed: number): void {
     if (this.distanceText) {
       this.distanceText.text = wallsPassed.toString();
+    }
+
+    if (this.difficultyStatsText && this.minigame) {
+      const penalties = this.minigame.penaltyCounts;
+      // Convert raw penalty values to logical penalty counts:
+      // spawnRate: 50ms per penalty, gapWidth: 3px per penalty, playerSpeed: 5px/s per penalty
+      const firewallCount = Math.round(penalties.spawnRate / 50);
+      const gapCount = Math.round(penalties.gapWidth / 3);
+      const speedCount = Math.round(penalties.playerSpeed / 5);
+      this.difficultyStatsText.text = `FIREWALL: ${firewallCount} | GAP: ${gapCount} | SPEED: ${speedCount}`;
     }
   }
 

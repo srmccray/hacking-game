@@ -4,7 +4,7 @@
  * PixiJS scene for the redesigned Code Breaker minigame. Handles:
  * - Visual rendering of the target sequence and player input (dynamic length)
  * - Per-code countdown bar with color transitions
- * - Raw keydown listener for 44-character input (A-Z, 0-9, !@#$%^&*)
+ * - Raw keydown listener for 26-character input (A-Z letters only)
  * - Stats bar: codes cracked, code length, money
  * - Results overlay with failure reason, codes cracked, longest code, money
  * - Upgrade bonus application (getMinigameTimeBonus + getPerCodeTimeBonus)
@@ -35,6 +35,7 @@ import type { InputContext } from '../../input/InputManager';
 import { INPUT_PRIORITY } from '../../input/InputManager';
 import { CodeBreakerGame } from './CodeBreakerGame';
 import type { FailReason } from './CodeBreakerGame';
+import type { MinigameEventType } from '../BaseMinigame';
 import { COLORS } from '../../rendering/Renderer';
 import {
   terminalStyle,
@@ -798,7 +799,8 @@ class CodeBreakerScene implements Scene {
     this.unsubscribers.push(unsubEnd);
 
     // Handle sequence complete (rebuild display for new code length)
-    const unsubSequence = this.minigame.on('sequence-complete' as 'end', (payload) => {
+    // Cast to MinigameEventType to match how CodeBreakerGame emits the event
+    const unsubSequence = this.minigame.on('sequence-complete' as MinigameEventType, (payload) => {
       if (!this.minigame) { return; }
 
       // Update accumulated money from event data
@@ -981,22 +983,21 @@ class CodeBreakerScene implements Scene {
 
   /**
    * Register a raw keydown event listener for character input.
-   * This bypasses the InputManager because it uses event.code (not event.key),
-   * which cannot handle Shift+digit for special characters (!@#$%^&*).
+   * Only accepts letter keys (KeyA-KeyZ) to match the 26-letter character set.
    */
   private registerRawKeyListener(): void {
-    const characterSet = this.game.config.minigames.codeBreaker.characterSet;
-
     this.rawKeydownHandler = (event: KeyboardEvent): void => {
       // Do not process if showing results
       if (this.showingResults) { return; }
       if (!this.minigame?.isPlaying) { return; }
 
-      // Convert event.key to uppercase
-      const key = event.key.toUpperCase();
+      // Only accept letter keys (KeyA through KeyZ)
+      if (!event.code.startsWith('Key')) { return; }
 
-      // Check if the key is a valid character in the character set
-      if (key.length === 1 && characterSet.includes(key)) {
+      // Extract the letter from the code (e.g., 'KeyA' -> 'A')
+      const key = event.code.slice(3);
+
+      if (key.length === 1 && key >= 'A' && key <= 'Z') {
         event.preventDefault();
         event.stopPropagation();
 

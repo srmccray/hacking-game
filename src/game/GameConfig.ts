@@ -263,7 +263,7 @@ export const DEFAULT_CONFIG: GameConfig = {
       perCodeTimeLimitMs: 5000, // 5 seconds per code
       baseMoneyPerCode: 5, // money = baseMoneyPerCode * codeLength per cracked code
       maxTopScores: 5,
-      characterSet: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*',
+      characterSet: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
       previewDurationMs: 750, // 750ms preview before timer starts
       timePerExtraCharMs: 300, // +300ms per char beyond startingCodeLength
     },

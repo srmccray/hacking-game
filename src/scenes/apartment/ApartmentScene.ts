@@ -58,7 +58,7 @@ const APARTMENT_CONFIG = {
   playerStartY: 375,
   /** Station positions - moved down so player can walk between wall and furniture */
   stations: {
-    door: { x: 75, y: 340 },       // Left wall exit
+    door: { x: 75, y: WALL_LINE_Y },  // Left wall door (aligned with wall decoration)
     desk: { x: 200, y: 340 },      // Left-center
     couch: { x: 400, y: 340 },     // Center
     workbench: { x: 550, y: 340 }, // Between window and clock
@@ -425,25 +425,20 @@ class ApartmentScene implements Scene {
    * Create all stations in the apartment.
    */
   private createStations(): void {
-    // Door station (exit to town)
+    // Door station (exit to town) - aligned with the door drawn on the wall
+    // Uses a minimal visual since the wall decoration already provides the door graphic
     const door = new Station('door', APARTMENT_CONFIG.stations.door.x, APARTMENT_CONFIG.stations.door.y, {
       onInteract: (): void => {
         console.log('[ApartmentScene] Door interaction - exiting to town');
         void this.game.switchScene('town');
       },
       visual: {
-        label: '[EXIT]',
-        name: 'EXIT',
+        label: '',
+        name: '',
         width: 50,
-        height: 70,
+        height: WALL_LINE_Y - 95, // Match the wall door height (from doorY=95 to WALL_LINE_Y)
         functional: true,
-        ascii: [
-          ' _______ ',
-          '|  EXIT  |',
-          '|       o|',
-          '|        |',
-          '|________|',
-        ],
+        ascii: [],
         promptText: '[ENTER] Exit to Town',
       },
     });
