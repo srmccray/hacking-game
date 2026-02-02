@@ -58,7 +58,8 @@ const APARTMENT_CONFIG = {
   playerStartY: 375,
   /** Station positions - moved down so player can walk between wall and furniture */
   stations: {
-    desk: { x: 150, y: 340 },      // Left
+    door: { x: 75, y: 340 },       // Left wall exit
+    desk: { x: 200, y: 340 },      // Left-center
     couch: { x: 400, y: 340 },     // Center
     workbench: { x: 550, y: 340 }, // Between window and clock
     bed: { x: 680, y: 340 },       // Right
@@ -354,50 +355,37 @@ class ApartmentScene implements Scene {
 
     decorations.addChild(window);
 
-    // Door on left wall (proper proportions - extends from wall line up)
-    const doorX = 60;
+    // Door frame on left wall (decorative backdrop for the interactive door station)
+    // Aligned with the door station at x=75 (centered), so frame spans x=50 to x=100
+    const doorX = 50;
     const doorY = 95; // Top of door (near ceiling)
     const doorWidth = 50;
     const doorHeight = WALL_LINE_Y - doorY; // Door extends down to wall line
 
-    const door = new Graphics();
+    const doorDecor = new Graphics();
     // Door frame
-    door.stroke({ color: COLORS.TERMINAL_GREEN, width: 2, alpha: 0.7 });
-    door.rect(doorX, doorY, doorWidth, doorHeight);
-    door.stroke();
+    doorDecor.stroke({ color: COLORS.TERMINAL_GREEN, width: 2, alpha: 0.7 });
+    doorDecor.rect(doorX, doorY, doorWidth, doorHeight);
+    doorDecor.stroke();
 
     // Door panels (3 horizontal panels)
-    door.stroke({ color: COLORS.TERMINAL_DIM, width: 1, alpha: 0.5 });
+    doorDecor.stroke({ color: COLORS.TERMINAL_DIM, width: 1, alpha: 0.5 });
     const panelMargin = 5;
     const panelWidth = doorWidth - panelMargin * 2;
     const panelHeight = (doorHeight - panelMargin * 4) / 3;
 
     for (let i = 0; i < 3; i++) {
       const panelY = doorY + panelMargin + i * (panelHeight + panelMargin);
-      door.rect(doorX + panelMargin, panelY, panelWidth, panelHeight);
+      doorDecor.rect(doorX + panelMargin, panelY, panelWidth, panelHeight);
     }
-    door.stroke();
+    doorDecor.stroke();
 
     // Door handle (right side)
-    door.fill({ color: COLORS.TERMINAL_GREEN, alpha: 0.8 });
-    door.circle(doorX + doorWidth - 10, doorY + doorHeight * 0.55, 3);
-    door.fill();
+    doorDecor.fill({ color: COLORS.TERMINAL_GREEN, alpha: 0.8 });
+    doorDecor.circle(doorX + doorWidth - 10, doorY + doorHeight * 0.55, 3);
+    doorDecor.fill();
 
-    // Door label
-    const doorLabel = new Text({
-      text: 'EXIT',
-      style: new TextStyle({
-        fontFamily: FONT_FAMILY,
-        fontSize: 10,
-        fill: COLORS.TERMINAL_DIM,
-        align: 'center',
-      }),
-    });
-    doorLabel.anchor.set(0.5, 0);
-    doorLabel.x = doorX + doorWidth / 2;
-    doorLabel.y = doorY - 12;
-    decorations.addChild(doorLabel);
-    decorations.addChild(door);
+    decorations.addChild(doorDecor);
 
     // Clock on right wall (above wall line)
     const clock = new Graphics();
@@ -437,6 +425,31 @@ class ApartmentScene implements Scene {
    * Create all stations in the apartment.
    */
   private createStations(): void {
+    // Door station (exit to town)
+    const door = new Station('door', APARTMENT_CONFIG.stations.door.x, APARTMENT_CONFIG.stations.door.y, {
+      onInteract: (): void => {
+        console.log('[ApartmentScene] Door interaction - exiting to town');
+        void this.game.switchScene('town');
+      },
+      visual: {
+        label: '[EXIT]',
+        name: 'EXIT',
+        width: 50,
+        height: 70,
+        functional: true,
+        ascii: [
+          ' _______ ',
+          '|  EXIT  |',
+          '|       o|',
+          '|        |',
+          '|________|',
+        ],
+        promptText: '[ENTER] Exit to Town',
+      },
+    });
+    this.stationManager.addStation(door);
+    this.container.addChild(door.container);
+
     // Desk station (launches minigame selection menu)
     const desk = new Station('desk', APARTMENT_CONFIG.stations.desk.x, APARTMENT_CONFIG.stations.desk.y, {
       onInteract: (): void => {

@@ -38,6 +38,7 @@ import { createApartmentScene } from '../scenes/apartment';
 import { createMinigameSelectionScene } from '../scenes/minigame-selection';
 import { createCouchUpgradesScene } from '../scenes/couch-upgrades';
 import { createWorkbenchUpgradesScene } from '../scenes/workbench-upgrades';
+import { createTownScene } from '../scenes/town';
 import { MinigameRegistry, registerCodeBreaker, createCodeBreakerScene, registerCodeRunner, createCodeRunnerScene } from '../minigames';
 import { TickEngine } from '../core/progression';
 import { UpgradePanel, InGameMenu, WelcomeBackModal } from '../ui';
@@ -308,6 +309,11 @@ export class Game implements GameInstance {
     // Workbench upgrades scene (hardware upgrades)
     this.sceneManager.register('workbench-upgrades', () => {
       return createWorkbenchUpgradesScene(game);
+    });
+
+    // Town scene (cyberpunk city street)
+    this.sceneManager.register('town', () => {
+      return createTownScene(game);
     });
   }
 
