@@ -37,7 +37,7 @@ import type { Game } from '../../game/Game';
 import type { InputContext } from '../../input/InputManager';
 import { INPUT_PRIORITY } from '../../input/InputManager';
 import { BotnetDefenseGame } from './BotnetDefenseGame';
-import type { BotnetDefenseState, Enemy, Projectile, XPGem } from './types';
+import type { BotnetDefenseState, Enemy, Projectile, XPGem, UpgradeChoice } from './types';
 import { COLORS } from '../../rendering/Renderer';
 import {
   terminalDimStyle,
@@ -46,6 +46,7 @@ import {
   scoreStyle,
   FONT_FAMILY,
   FONT_SIZES,
+  createTerminalStyle,
 } from '../../rendering/styles';
 import { GameEvents } from '../../events/game-events';
 import { formatTimeMMSS } from '../BaseMinigame';
@@ -77,8 +78,11 @@ const ENEMY_COLORS: Record<string, number> = {
   ransomware: 0xff44ff,
 };
 
-/** Projectile color */
+/** Projectile colors by weapon type */
 const PROJECTILE_COLOR = 0x44ff44;
+const FIREWALL_COLOR = 0xff8800;
+const PORT_SCANNER_COLOR = 0x4488ff;
+const EXPLOIT_COLOR = 0xff44ff;
 
 /** XP gem color */
 const XP_GEM_COLOR = 0x00ffff;
@@ -147,6 +151,18 @@ class BotnetDefenseScene implements Scene {
 
   /** Results overlay container */
   private resultsOverlay: Container | null = null;
+
+  /** Level-up overlay container */
+  private levelUpOverlay: Container | null = null;
+
+  /** Whether the level-up overlay is currently showing */
+  private showingLevelUp: boolean = false;
+
+  /** Currently highlighted card index (0, 1, or 2) for arrow key navigation */
+  private levelUpSelectedIndex: number = 0;
+
+  /** Graphics objects for the card highlight borders, used for selection feedback */
+  private cardBorders: Graphics[] = [];
 
   /** Event unsubscribers */
   private unsubscribers: Array<() => void> = [];
@@ -237,6 +253,18 @@ class BotnetDefenseScene implements Scene {
       return;
     }
 
+    // Check if the game logic has triggered a level-up that we haven't shown yet
+    const state = this.minigame.getState();
+    if (state.isLevelingUp && !this.showingLevelUp) {
+      this.showLevelUpOverlay(state.upgradeChoices, state.level);
+      return;
+    }
+
+    // Don't process game updates while level-up overlay is active
+    if (this.showingLevelUp) {
+      return;
+    }
+
     // Poll held keys for continuous movement input
     this.pollMovementInput();
 
@@ -279,6 +307,8 @@ class BotnetDefenseScene implements Scene {
     this.xpBarGraphics = null;
     this.xpLevelText = null;
     this.resultsOverlay = null;
+    this.levelUpOverlay = null;
+    this.cardBorders = [];
 
     // Destroy container and children
     this.container.destroy({ children: true });
@@ -541,6 +571,49 @@ class BotnetDefenseScene implements Scene {
   }
 
   /**
+   * Draw the initial shape of a projectile based on its weapon type.
+   * - Ping: small bright square
+   * - Firewall: rectangular barrier (orange)
+   * - Port Scanner: expanding ring (drawn per-frame in updateProjectiles)
+   * - Exploit: diamond/arrow shape (magenta)
+   */
+  private drawProjectileShape(graphic: Graphics, proj: Projectile): void {
+    switch (proj.weaponType) {
+      case 'firewall': {
+        // Rectangular barrier
+        graphic.rect(-12, -4, 24, 8);
+        graphic.fill({ color: FIREWALL_COLOR, alpha: 0.8 });
+        graphic.stroke({ color: FIREWALL_COLOR, width: 1, alpha: 0.5 });
+        break;
+      }
+      case 'port-scanner': {
+        // Initial ring (will be redrawn each frame)
+        graphic.circle(0, 0, proj.radius);
+        graphic.stroke({ color: PORT_SCANNER_COLOR, width: 2 });
+        break;
+      }
+      case 'exploit': {
+        // Diamond/arrow shape
+        const s = 6;
+        graphic.moveTo(s, 0);   // right tip
+        graphic.lineTo(0, -s);  // top
+        graphic.lineTo(-s, 0);  // left
+        graphic.lineTo(0, s);   // bottom
+        graphic.closePath();
+        graphic.fill({ color: EXPLOIT_COLOR, alpha: 0.9 });
+        graphic.stroke({ color: EXPLOIT_COLOR, width: 1, alpha: 0.5 });
+        break;
+      }
+      default: {
+        // Ping: small bright rectangle
+        graphic.rect(-2, -2, 4, 4);
+        graphic.fill({ color: PROJECTILE_COLOR });
+        break;
+      }
+    }
+  }
+
+  /**
    * Create instruction text below the game area.
    */
   private createInstructions(centerX: number, y: number): void {
@@ -672,11 +745,17 @@ class BotnetDefenseScene implements Scene {
 
       if (!graphic) {
         graphic = new Graphics();
-        // Small bright rectangle for projectiles
-        graphic.rect(-2, -2, 4, 4);
-        graphic.fill({ color: PROJECTILE_COLOR });
+        this.drawProjectileShape(graphic, proj);
         this.projectileGraphicsById.set(proj.id, graphic);
         this.gameArea.addChildAt(graphic, 2);
+      }
+
+      // Port Scanner rings need to be redrawn each frame as radius expands
+      if (proj.weaponType === 'port-scanner') {
+        graphic.clear();
+        const alpha = Math.max(0.1, proj.lifetime > 0 ? Math.min(1, proj.lifetime / 1000) : 0);
+        graphic.circle(0, 0, proj.radius);
+        graphic.stroke({ color: PORT_SCANNER_COLOR, width: 2, alpha });
       }
 
       graphic.x = proj.x;
@@ -957,6 +1036,251 @@ class BotnetDefenseScene implements Scene {
   }
 
   // ==========================================================================
+  // Level-Up Overlay
+  // ==========================================================================
+
+  /**
+   * Show the level-up upgrade selection overlay.
+   * Pauses visual updates and presents upgrade choice cards.
+   *
+   * @param choices - The upgrade choices to display (typically 3)
+   * @param level - The new level the player just reached
+   */
+  private showLevelUpOverlay(choices: UpgradeChoice[], level: number): void {
+    if (this.showingLevelUp) {
+      return;
+    }
+
+    this.showingLevelUp = true;
+    this.levelUpSelectedIndex = 0;
+    this.cardBorders = [];
+
+    const canvasWidth = (this.game.config as { canvas: { width: number; height: number } }).canvas.width;
+    const canvasHeight = (this.game.config as { canvas: { width: number; height: number } }).canvas.height;
+
+    this.levelUpOverlay = new Container();
+    this.levelUpOverlay.label = 'level-up-overlay';
+
+    // Semi-transparent dark background covering the full scene
+    const bg = new Graphics();
+    bg.rect(0, 0, canvasWidth, canvasHeight);
+    bg.fill({ color: 0x000000, alpha: 0.80 });
+    this.levelUpOverlay.addChild(bg);
+
+    // "LEVEL UP!" title in cyan with glow
+    const levelUpTitle = new Text({
+      text: '[ LEVEL UP! ]',
+      style: createTerminalStyle(COLORS.TERMINAL_CYAN, FONT_SIZES.TITLE, true),
+    });
+    levelUpTitle.anchor.set(0.5, 0);
+    levelUpTitle.x = canvasWidth / 2;
+    levelUpTitle.y = 60;
+    this.levelUpOverlay.addChild(levelUpTitle);
+
+    // Level number subtitle
+    const levelSubtitle = new Text({
+      text: `LEVEL ${level}`,
+      style: createTerminalStyle(COLORS.TERMINAL_GREEN, FONT_SIZES.MEDIUM, true),
+    });
+    levelSubtitle.anchor.set(0.5, 0);
+    levelSubtitle.x = canvasWidth / 2;
+    levelSubtitle.y = 100;
+    this.levelUpOverlay.addChild(levelSubtitle);
+
+    // Card layout: 3 cards arranged horizontally
+    const cardWidth = 180;
+    const cardHeight = 200;
+    const cardGap = 20;
+    const totalWidth = choices.length * cardWidth + (choices.length - 1) * cardGap;
+    const startX = (canvasWidth - totalWidth) / 2;
+    const cardY = 145;
+
+    for (let i = 0; i < choices.length; i++) {
+      const choice = choices[i]!;
+      const cardX = startX + i * (cardWidth + cardGap);
+
+      // Card background fill
+      const cardBg = new Graphics();
+      cardBg.roundRect(cardX, cardY, cardWidth, cardHeight, 4);
+      cardBg.fill({ color: 0x0d1a0d, alpha: 0.95 });
+      this.levelUpOverlay.addChild(cardBg);
+
+      // Card border (stored for selection highlight updates)
+      const cardBorder = new Graphics();
+      this.drawCardBorder(cardBorder, cardX, cardY, cardWidth, cardHeight, i === 0);
+      this.levelUpOverlay.addChild(cardBorder);
+      this.cardBorders.push(cardBorder);
+
+      // Key number indicator at top
+      const keyText = new Text({
+        text: `[${i + 1}]`,
+        style: createTerminalStyle(COLORS.TERMINAL_CYAN, FONT_SIZES.SMALL, false),
+      });
+      keyText.anchor.set(0.5, 0);
+      keyText.x = cardX + cardWidth / 2;
+      keyText.y = cardY + 10;
+      this.levelUpOverlay.addChild(keyText);
+
+      // Upgrade name
+      const nameText = new Text({
+        text: choice.label,
+        style: new TextStyle({
+          fontFamily: FONT_FAMILY,
+          fontSize: FONT_SIZES.NORMAL,
+          fill: COLORS.TERMINAL_BRIGHT,
+          fontWeight: 'bold',
+          wordWrap: true,
+          wordWrapWidth: cardWidth - 20,
+          align: 'center',
+        }),
+      });
+      nameText.anchor.set(0.5, 0);
+      nameText.x = cardX + cardWidth / 2;
+      nameText.y = cardY + 35;
+      this.levelUpOverlay.addChild(nameText);
+
+      // Divider line inside card
+      const divider = new Graphics();
+      divider.moveTo(cardX + 15, cardY + 75);
+      divider.lineTo(cardX + cardWidth - 15, cardY + 75);
+      divider.stroke({ color: COLORS.TERMINAL_DIM, width: 1, alpha: 0.5 });
+      this.levelUpOverlay.addChild(divider);
+
+      // Upgrade description
+      const descText = new Text({
+        text: choice.description,
+        style: new TextStyle({
+          fontFamily: FONT_FAMILY,
+          fontSize: FONT_SIZES.SMALL,
+          fill: COLORS.TERMINAL_DIM,
+          wordWrap: true,
+          wordWrapWidth: cardWidth - 24,
+          align: 'center',
+        }),
+      });
+      descText.anchor.set(0.5, 0);
+      descText.x = cardX + cardWidth / 2;
+      descText.y = cardY + 85;
+      this.levelUpOverlay.addChild(descText);
+
+      // Upgrade type tag at bottom of card
+      const typeTag = this.getUpgradeTypeTag(choice);
+      const tagText = new Text({
+        text: typeTag,
+        style: createTerminalStyle(COLORS.TERMINAL_DIM, FONT_SIZES.SMALL, false),
+      });
+      tagText.anchor.set(0.5, 1);
+      tagText.x = cardX + cardWidth / 2;
+      tagText.y = cardY + cardHeight - 10;
+      this.levelUpOverlay.addChild(tagText);
+    }
+
+    // Instructions at the bottom
+    const instructions = new Text({
+      text: '[1/2/3] or [\u2190/\u2192] + ENTER to select',
+      style: terminalDimStyle,
+    });
+    instructions.anchor.set(0.5, 0);
+    instructions.x = canvasWidth / 2;
+    instructions.y = cardY + cardHeight + 20;
+    this.levelUpOverlay.addChild(instructions);
+
+    this.container.addChild(this.levelUpOverlay);
+  }
+
+  /**
+   * Draw (or redraw) a card border with selection highlight.
+   */
+  private drawCardBorder(
+    border: Graphics,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    selected: boolean,
+  ): void {
+    border.clear();
+    border.roundRect(x, y, w, h, 4);
+    if (selected) {
+      border.stroke({ color: COLORS.TERMINAL_CYAN, width: 2 });
+    } else {
+      border.stroke({ color: COLORS.TERMINAL_DIM, width: 1, alpha: 0.6 });
+    }
+  }
+
+  /**
+   * Update which card border is highlighted based on the selected index.
+   */
+  private updateLevelUpSelection(): void {
+    if (!this.levelUpOverlay || this.cardBorders.length === 0) {
+      return;
+    }
+
+    const canvasWidth = (this.game.config as { canvas: { width: number; height: number } }).canvas.width;
+    const cardWidth = 180;
+    const cardHeight = 200;
+    const cardGap = 20;
+    const totalWidth = this.cardBorders.length * cardWidth + (this.cardBorders.length - 1) * cardGap;
+    const startX = (canvasWidth - totalWidth) / 2;
+    const cardY = 145;
+
+    for (let i = 0; i < this.cardBorders.length; i++) {
+      const cardX = startX + i * (cardWidth + cardGap);
+      const border = this.cardBorders[i]!;
+      this.drawCardBorder(border, cardX, cardY, cardWidth, cardHeight, i === this.levelUpSelectedIndex);
+    }
+  }
+
+  /**
+   * Hide the level-up overlay and resume gameplay.
+   */
+  private hideLevelUpOverlay(): void {
+    if (this.levelUpOverlay) {
+      this.container.removeChild(this.levelUpOverlay);
+      this.levelUpOverlay.destroy({ children: true });
+      this.levelUpOverlay = null;
+    }
+
+    this.cardBorders = [];
+    this.showingLevelUp = false;
+    this.levelUpSelectedIndex = 0;
+  }
+
+  /**
+   * Confirm the currently selected upgrade choice.
+   */
+  private confirmLevelUpChoice(index: number): void {
+    if (!this.minigame || !this.showingLevelUp) {
+      return;
+    }
+
+    // Apply the upgrade (this also resumes the game)
+    this.minigame.applyUpgrade(index);
+
+    // Remove the overlay
+    this.hideLevelUpOverlay();
+
+    // Refresh display immediately
+    this.updateDisplay();
+  }
+
+  /**
+   * Get a display tag for the upgrade type.
+   */
+  private getUpgradeTypeTag(choice: UpgradeChoice): string {
+    switch (choice.type) {
+      case 'new-weapon':
+        return 'NEW WEAPON';
+      case 'upgrade-weapon':
+        return 'WEAPON UPGRADE';
+      case 'stat-boost':
+        return 'STAT BOOST';
+      default:
+        return '';
+    }
+  }
+
+  // ==========================================================================
   // Input Handling
   // ==========================================================================
 
@@ -972,19 +1296,49 @@ class BotnetDefenseScene implements Scene {
     // Movement keys - we register them but rely on held-key polling
     // in onUpdate for continuous movement. The bindings ensure
     // the InputManager tracks these keys and blocks propagation.
-    const movementKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
-    for (const key of movementKeys) {
+    // Arrow left/right also have onPress handlers for level-up card navigation.
+    const movementKeysNoNav = ['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown'];
+    for (const key of movementKeysNoNav) {
       bindings.set(key, {});
     }
+
+    bindings.set('KeyA', {
+      onPress: () => this.handleLevelUpNav(-1),
+    });
+    bindings.set('ArrowLeft', {
+      onPress: () => this.handleLevelUpNav(-1),
+    });
+    bindings.set('KeyD', {
+      onPress: () => this.handleLevelUpNav(1),
+    });
+    bindings.set('ArrowRight', {
+      onPress: () => this.handleLevelUpNav(1),
+    });
 
     // Escape to exit
     bindings.set('Escape', {
       onPress: () => this.handleEscape(),
     });
 
-    // Enter to continue from results
+    // Enter to continue from results, or confirm level-up selection
     bindings.set('Enter', {
       onPress: () => this.handleEnter(),
+    });
+
+    // Space also confirms level-up selection
+    bindings.set('Space', {
+      onPress: () => this.handleEnter(),
+    });
+
+    // Digit keys 1/2/3 for direct upgrade choice selection
+    bindings.set('Digit1', {
+      onPress: () => this.handleLevelUpDigit(0),
+    });
+    bindings.set('Digit2', {
+      onPress: () => this.handleLevelUpDigit(1),
+    });
+    bindings.set('Digit3', {
+      onPress: () => this.handleLevelUpDigit(2),
     });
 
     this.inputContext = {
@@ -1022,6 +1376,11 @@ class BotnetDefenseScene implements Scene {
    * Handle escape key.
    */
   private handleEscape(): void {
+    if (this.showingLevelUp) {
+      // During level-up, ESC does nothing - player must pick an upgrade
+      return;
+    }
+
     if (this.showingResults) {
       // Exit to apartment
       void this.game.switchScene('apartment');
@@ -1040,6 +1399,12 @@ class BotnetDefenseScene implements Scene {
    * Handle enter key.
    */
   private handleEnter(): void {
+    if (this.showingLevelUp) {
+      // Confirm the currently highlighted upgrade card
+      this.confirmLevelUpChoice(this.levelUpSelectedIndex);
+      return;
+    }
+
     if (this.showingResults) {
       // Return to interstitial menu
       const interstitialSceneId = `minigame-interstitial-${this.id}`;
@@ -1049,6 +1414,43 @@ class BotnetDefenseScene implements Scene {
       );
       void this.game.switchScene(interstitialSceneId);
     }
+  }
+
+  /**
+   * Handle digit key press for direct upgrade selection during level-up.
+   *
+   * @param index - The 0-based card index (0 for Digit1, 1 for Digit2, 2 for Digit3)
+   */
+  private handleLevelUpDigit(index: number): void {
+    if (!this.showingLevelUp) {
+      return;
+    }
+
+    const state = this.minigame?.getState();
+    if (!state || index >= state.upgradeChoices.length) {
+      return;
+    }
+
+    this.confirmLevelUpChoice(index);
+  }
+
+  /**
+   * Handle arrow key / A/D navigation during level-up card selection.
+   *
+   * @param direction - -1 for left, +1 for right
+   */
+  private handleLevelUpNav(direction: number): void {
+    if (!this.showingLevelUp) {
+      return;
+    }
+
+    const choiceCount = this.cardBorders.length;
+    if (choiceCount === 0) {
+      return;
+    }
+
+    this.levelUpSelectedIndex = (this.levelUpSelectedIndex + direction + choiceCount) % choiceCount;
+    this.updateLevelUpSelection();
   }
 }
 

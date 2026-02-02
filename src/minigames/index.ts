@@ -54,3 +54,15 @@ export {
   type CodeRunnerState,
   type CodeRunnerEventType,
 } from './code-runner';
+
+// Botnet Defense minigame
+export {
+  BotnetDefenseGame,
+  createBotnetDefenseScene,
+  BOTNET_DEFENSE_DEFINITION,
+  registerBotnetDefense,
+  type BotnetDefenseState,
+  type Enemy,
+  type Projectile,
+  type XPGem,
+} from './botnet-defense';

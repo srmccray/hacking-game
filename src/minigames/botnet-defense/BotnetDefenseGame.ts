@@ -95,6 +95,63 @@ const PING_DAMAGE = 1;
 /** Ping weapon projectile count (level 1). */
 const PING_PROJECTILE_COUNT = 1;
 
+// -- Firewall weapon constants --
+
+/** Firewall orbital radius in pixels. */
+const FIREWALL_ORBIT_RADIUS = 80;
+
+/** Firewall rotation speed in radians per second. */
+const FIREWALL_ROTATION_SPEED = 3.0;
+
+/** Firewall "cooldown" - time between spawning a new set of orbitals (ms). */
+const FIREWALL_COOLDOWN_MS = 100;
+
+/** Firewall damage per hit. */
+const FIREWALL_DAMAGE = 2;
+
+/** Firewall projectile collision radius. */
+const FIREWALL_RADIUS = 10;
+
+/** Firewall projectile lifetime (effectively infinite, refreshed constantly). */
+const FIREWALL_LIFETIME = 200;
+
+/** Number of firewall barriers at level 1. */
+const FIREWALL_COUNT = 1;
+
+// -- Port Scanner weapon constants --
+
+/** Port Scanner cooldown in milliseconds. */
+const PORT_SCANNER_COOLDOWN_MS = 3000;
+
+/** Port Scanner ring expansion speed in pixels per second. */
+const PORT_SCANNER_EXPAND_SPEED = 200;
+
+/** Port Scanner ring lifetime in milliseconds. */
+const PORT_SCANNER_LIFETIME = 1500;
+
+/** Port Scanner damage per hit. */
+const PORT_SCANNER_DAMAGE = 1;
+
+/** Port Scanner maximum ring radius. */
+const PORT_SCANNER_MAX_RADIUS = 300;
+
+// -- Exploit weapon constants --
+
+/** Exploit projectile speed in pixels per second. */
+const EXPLOIT_PROJECTILE_SPEED = 300;
+
+/** Exploit cooldown in milliseconds. */
+const EXPLOIT_COOLDOWN_MS = 1500;
+
+/** Exploit damage per hit. */
+const EXPLOIT_DAMAGE = 3;
+
+/** Exploit projectile lifetime in milliseconds. */
+const EXPLOIT_LIFETIME = 3000;
+
+/** Exploit homing turn rate in radians per second. */
+const EXPLOIT_HOMING_RATE = 4.0;
+
 /** Default enemy collision radius (used for edge spawn margin calculation). */
 const DEFAULT_ENEMY_RADIUS = 10;
 
@@ -460,8 +517,19 @@ export class BotnetDefenseGame extends BaseMinigame {
    * Fire a weapon, creating projectile(s) based on weapon type and level.
    */
   private fireWeapon(weapon: WeaponState): void {
-    if (weapon.type === 'ping') {
-      this.firePing(weapon);
+    switch (weapon.type) {
+      case 'ping':
+        this.firePing(weapon);
+        break;
+      case 'firewall':
+        this.fireFirewall(weapon);
+        break;
+      case 'port-scanner':
+        this.firePortScanner(weapon);
+        break;
+      case 'exploit':
+        this.fireExploit(weapon);
+        break;
     }
   }
 
@@ -472,7 +540,7 @@ export class BotnetDefenseGame extends BaseMinigame {
   private firePing(weapon: WeaponState): void {
     // Determine firing direction from player facing
     let dirX = this._player.facingX;
-    let dirY = this._player.facingY;
+    const dirY = this._player.facingY;
 
     // Fallback: if facing is somehow (0,0), fire right
     if (dirX === 0 && dirY === 0) {
@@ -518,35 +586,281 @@ export class BotnetDefenseGame extends BaseMinigame {
     });
   }
 
+  /**
+   * Fire the Firewall weapon: rotating orbital barrier(s) around the player.
+   * Each orbital is a projectile that follows the player in a circle.
+   * The firewall continuously refreshes its orbitals on a short cooldown.
+   */
+  private fireFirewall(weapon: WeaponState): void {
+    // Remove existing firewall projectiles so we refresh them
+    for (const proj of this._projectiles) {
+      if (proj.active && proj.weaponType === 'firewall') {
+        proj.active = false;
+      }
+    }
+
+    const barrierCount = FIREWALL_COUNT + Math.floor((weapon.level - 1) * 0.5);
+    const damage = Math.ceil(FIREWALL_DAMAGE * (1 + (weapon.level - 1) * 0.3));
+
+    for (let i = 0; i < barrierCount; i++) {
+      const angleOffset = (2 * Math.PI * i) / barrierCount;
+      // Store the current angle in velocityX and angular speed in velocityY
+      // The angle is based on game time so the rotation is continuous
+      const currentAngle = angleOffset + (this._playTimeMs / 1000) * FIREWALL_ROTATION_SPEED;
+      const projX = this._player.x + Math.cos(currentAngle) * FIREWALL_ORBIT_RADIUS;
+      const projY = this._player.y + Math.sin(currentAngle) * FIREWALL_ORBIT_RADIUS;
+
+      const projectile: Projectile = {
+        id: this._nextEntityId++,
+        x: projX,
+        y: projY,
+        radius: FIREWALL_RADIUS,
+        active: true,
+        weaponType: 'firewall',
+        damage: damage * this._player.damageMult,
+        // Store base angle offset in velocityX for use in updateProjectiles
+        velocityX: angleOffset,
+        // velocityY unused for firewall; store 0
+        velocityY: 0,
+        lifetime: FIREWALL_LIFETIME,
+      };
+      this._projectiles.push(projectile);
+    }
+
+    weapon.cooldownRemaining = FIREWALL_COOLDOWN_MS;
+  }
+
+  /**
+   * Fire the Port Scanner weapon: an expanding ring from the player's position.
+   * The ring damages all enemies it touches as it expands outward.
+   * Uses radius field to represent the current ring size and velocityX to
+   * store the expansion speed.
+   */
+  private firePortScanner(weapon: WeaponState): void {
+    const damage = Math.ceil(PORT_SCANNER_DAMAGE * (1 + (weapon.level - 1) * 0.4));
+
+    const projectile: Projectile = {
+      id: this._nextEntityId++,
+      x: this._player.x,
+      y: this._player.y,
+      radius: 5, // Starting radius, will expand
+      active: true,
+      weaponType: 'port-scanner',
+      damage: damage * this._player.damageMult,
+      velocityX: PORT_SCANNER_EXPAND_SPEED + weapon.level * 20, // expansion speed
+      velocityY: 0, // unused
+      lifetime: PORT_SCANNER_LIFETIME + weapon.level * 200,
+    };
+    this._projectiles.push(projectile);
+
+    weapon.cooldownRemaining = Math.max(1500, PORT_SCANNER_COOLDOWN_MS - weapon.level * 200);
+
+    this.emit('weapon-fired' as MinigameEventType, {
+      minigameId: this.id,
+      data: {
+        weaponType: 'port-scanner',
+        x: this._player.x,
+        y: this._player.y,
+      },
+    });
+  }
+
+  /**
+   * Fire the Exploit weapon: a homing projectile that seeks the nearest enemy.
+   * If no enemies are present, fires in the player's facing direction.
+   */
+  private fireExploit(weapon: WeaponState): void {
+    const damage = Math.ceil(EXPLOIT_DAMAGE * (1 + (weapon.level - 1) * 0.35));
+
+    // Find the nearest active enemy
+    let targetX = this._player.x + this._player.facingX * 100;
+    let targetY = this._player.y + this._player.facingY * 100;
+    let nearestDist = Infinity;
+
+    for (const enemy of this._enemies) {
+      if (!enemy.active) {continue;}
+      const dx = enemy.x - this._player.x;
+      const dy = enemy.y - this._player.y;
+      const dist = dx * dx + dy * dy;
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        targetX = enemy.x;
+        targetY = enemy.y;
+      }
+    }
+
+    // Direction toward target
+    let dirX = targetX - this._player.x;
+    let dirY = targetY - this._player.y;
+    const length = Math.sqrt(dirX * dirX + dirY * dirY);
+    if (length > 0) {
+      dirX /= length;
+      dirY /= length;
+    } else {
+      dirX = this._player.facingX || 1;
+      dirY = this._player.facingY;
+    }
+
+    const projectile: Projectile = {
+      id: this._nextEntityId++,
+      x: this._player.x,
+      y: this._player.y,
+      radius: PROJECTILE_RADIUS + 2,
+      active: true,
+      weaponType: 'exploit',
+      damage: damage * this._player.damageMult,
+      velocityX: dirX * EXPLOIT_PROJECTILE_SPEED,
+      velocityY: dirY * EXPLOIT_PROJECTILE_SPEED,
+      lifetime: EXPLOIT_LIFETIME,
+    };
+    this._projectiles.push(projectile);
+
+    weapon.cooldownRemaining = Math.max(800, EXPLOIT_COOLDOWN_MS - weapon.level * 100);
+
+    this.emit('weapon-fired' as MinigameEventType, {
+      minigameId: this.id,
+      data: {
+        weaponType: 'exploit',
+        x: this._player.x,
+        y: this._player.y,
+        dirX,
+        dirY,
+      },
+    });
+  }
+
   // ==========================================================================
   // Private Methods - Projectiles
   // ==========================================================================
 
   /**
    * Update projectile positions and lifetime.
+   * Each weapon type has its own movement behavior.
    */
   private updateProjectiles(deltaMs: number, deltaSec: number): void {
     for (const proj of this._projectiles) {
-      if (!proj.active) continue;
+      if (!proj.active) {continue;}
 
-      // Move projectile
-      proj.x += proj.velocityX * deltaSec;
-      proj.y += proj.velocityY * deltaSec;
+      switch (proj.weaponType) {
+        case 'firewall':
+          this.updateFirewallProjectile(proj);
+          break;
+
+        case 'port-scanner':
+          this.updatePortScannerProjectile(proj, deltaMs, deltaSec);
+          break;
+
+        case 'exploit':
+          this.updateExploitProjectile(proj, deltaMs, deltaSec);
+          break;
+
+        default:
+          // Ping and any other linear projectiles
+          proj.x += proj.velocityX * deltaSec;
+          proj.y += proj.velocityY * deltaSec;
+          break;
+      }
 
       // Decrement lifetime
       proj.lifetime -= deltaMs;
 
-      // Deactivate if lifetime expired or out of arena bounds
-      if (
-        proj.lifetime <= 0 ||
-        proj.x < -proj.radius ||
-        proj.x > this.config.arenaWidth + proj.radius ||
-        proj.y < -proj.radius ||
-        proj.y > this.config.arenaHeight + proj.radius
-      ) {
+      // Deactivate if lifetime expired
+      if (proj.lifetime <= 0) {
         proj.active = false;
+        continue;
+      }
+
+      // Out-of-bounds check (skip for firewall since it follows player,
+      // and port-scanner since it expands from a fixed point)
+      if (proj.weaponType !== 'firewall' && proj.weaponType !== 'port-scanner') {
+        if (
+          proj.x < -proj.radius ||
+          proj.x > this.config.arenaWidth + proj.radius ||
+          proj.y < -proj.radius ||
+          proj.y > this.config.arenaHeight + proj.radius
+        ) {
+          proj.active = false;
+        }
       }
     }
+  }
+
+  /**
+   * Update a Firewall projectile: orbit around the player at a fixed radius.
+   * The angle offset is stored in velocityX; the position is recalculated
+   * from the player position and elapsed game time each frame.
+   */
+  private updateFirewallProjectile(proj: Projectile): void {
+    const angleOffset = proj.velocityX;
+    const currentAngle = angleOffset + (this._playTimeMs / 1000) * FIREWALL_ROTATION_SPEED;
+    proj.x = this._player.x + Math.cos(currentAngle) * FIREWALL_ORBIT_RADIUS;
+    proj.y = this._player.y + Math.sin(currentAngle) * FIREWALL_ORBIT_RADIUS;
+  }
+
+  /**
+   * Update a Port Scanner projectile: expand the ring radius over time.
+   * The expansion speed is stored in velocityX. The projectile stays at
+   * its spawn position while the radius grows.
+   */
+  private updatePortScannerProjectile(proj: Projectile, _deltaMs: number, deltaSec: number): void {
+    // Expand the ring radius
+    proj.radius += proj.velocityX * deltaSec;
+
+    // Cap the radius
+    if (proj.radius > PORT_SCANNER_MAX_RADIUS) {
+      proj.active = false;
+    }
+  }
+
+  /**
+   * Update an Exploit projectile: gently home toward the nearest enemy.
+   * Adjusts heading each frame toward the closest active enemy.
+   */
+  private updateExploitProjectile(proj: Projectile, _deltaMs: number, deltaSec: number): void {
+    // Find nearest active enemy
+    let nearestDist = Infinity;
+    let targetX = proj.x + proj.velocityX;
+    let targetY = proj.y + proj.velocityY;
+
+    for (const enemy of this._enemies) {
+      if (!enemy.active) {continue;}
+      const dx = enemy.x - proj.x;
+      const dy = enemy.y - proj.y;
+      const dist = dx * dx + dy * dy;
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        targetX = enemy.x;
+        targetY = enemy.y;
+      }
+    }
+
+    // Calculate desired direction
+    const desiredDx = targetX - proj.x;
+    const desiredDy = targetY - proj.y;
+    const desiredLength = Math.sqrt(desiredDx * desiredDx + desiredDy * desiredDy);
+
+    if (desiredLength > 1) {
+      const desiredAngle = Math.atan2(desiredDy, desiredDx);
+      const currentAngle = Math.atan2(proj.velocityY, proj.velocityX);
+
+      // Calculate angle difference and clamp turn rate
+      let angleDiff = desiredAngle - currentAngle;
+      // Normalize to [-PI, PI]
+      while (angleDiff > Math.PI) {angleDiff -= 2 * Math.PI;}
+      while (angleDiff < -Math.PI) {angleDiff += 2 * Math.PI;}
+
+      const maxTurn = EXPLOIT_HOMING_RATE * deltaSec;
+      const turnAmount = Math.max(-maxTurn, Math.min(maxTurn, angleDiff));
+      const newAngle = currentAngle + turnAmount;
+
+      const speed = Math.sqrt(proj.velocityX * proj.velocityX + proj.velocityY * proj.velocityY);
+      proj.velocityX = Math.cos(newAngle) * speed;
+      proj.velocityY = Math.sin(newAngle) * speed;
+    }
+
+    // Move
+    proj.x += proj.velocityX * deltaSec;
+    proj.y += proj.velocityY * deltaSec;
   }
 
   // ==========================================================================
@@ -558,7 +872,7 @@ export class BotnetDefenseGame extends BaseMinigame {
    */
   private updateEnemies(deltaSec: number): void {
     for (const enemy of this._enemies) {
-      if (!enemy.active) continue;
+      if (!enemy.active) {continue;}
 
       // Move toward player
       const dx = this._player.x - enemy.x;
@@ -689,19 +1003,47 @@ export class BotnetDefenseGame extends BaseMinigame {
 
   /**
    * Check collisions between projectiles and enemies.
-   * On hit: reduce enemy HP, deactivate projectile, and handle enemy death.
+   * On hit: reduce enemy HP, deactivate projectile (unless piercing), and handle enemy death.
+   *
+   * Different weapon types have different collision behaviors:
+   * - Ping/Exploit: standard circle-circle, consumed on hit
+   * - Firewall: circle-circle, NOT consumed (pierces through enemies)
+   * - Port Scanner: ring collision (enemy within ring radius), NOT consumed
    */
   private checkProjectileEnemyCollisions(): void {
     for (const proj of this._projectiles) {
-      if (!proj.active) continue;
+      if (!proj.active) {continue;}
 
       for (const enemy of this._enemies) {
-        if (!enemy.active) continue;
+        if (!enemy.active) {continue;}
 
-        if (this.circleCollision(proj.x, proj.y, proj.radius, enemy.x, enemy.y, enemy.radius)) {
-          // Apply damage
-          enemy.hp -= proj.damage;
-          proj.active = false;
+        let hit = false;
+
+        if (proj.weaponType === 'port-scanner') {
+          // Ring collision: enemy center within expanding ring radius
+          const dx = proj.x - enemy.x;
+          const dy = proj.y - enemy.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          // Hit if enemy is within the ring (with some tolerance for the ring width)
+          const ringWidth = 15;
+          hit = dist < proj.radius + enemy.radius && dist > proj.radius - ringWidth - enemy.radius;
+        } else {
+          hit = this.circleCollision(proj.x, proj.y, proj.radius, enemy.x, enemy.y, enemy.radius);
+        }
+
+        if (hit) {
+          // Apply damage (with global damage multiplier for non-firewall/port-scanner;
+          // those already have it baked in at fire time)
+          const effectiveDamage = (proj.weaponType === 'ping' || proj.weaponType === 'exploit')
+            ? proj.damage * this._player.damageMult
+            : proj.damage;
+          enemy.hp -= effectiveDamage;
+
+          // Firewall and Port Scanner pierce through enemies; others are consumed
+          const piercing = proj.weaponType === 'firewall' || proj.weaponType === 'port-scanner';
+          if (!piercing) {
+            proj.active = false;
+          }
 
           // Check if enemy is dead
           if (enemy.hp <= 0) {
@@ -724,8 +1066,10 @@ export class BotnetDefenseGame extends BaseMinigame {
             });
           }
 
-          // Projectile is consumed, move to next projectile
-          break;
+          // Non-piercing projectiles are consumed, move to next projectile
+          if (!piercing) {
+            break;
+          }
         }
       }
     }
@@ -741,7 +1085,7 @@ export class BotnetDefenseGame extends BaseMinigame {
     }
 
     for (const enemy of this._enemies) {
-      if (!enemy.active) continue;
+      if (!enemy.active) {continue;}
 
       if (
         this.circleCollision(
@@ -809,7 +1153,7 @@ export class BotnetDefenseGame extends BaseMinigame {
    */
   private updateXPGems(deltaSec: number): void {
     for (const gem of this._xpGems) {
-      if (!gem.active) continue;
+      if (!gem.active) {continue;}
 
       const dx = this._player.x - gem.x;
       const dy = this._player.y - gem.y;
@@ -908,7 +1252,7 @@ export class BotnetDefenseGame extends BaseMinigame {
     // Pick up to choiceCount
     const choices: UpgradeChoice[] = [];
     for (const candidate of candidates) {
-      if (choices.length >= choiceCount) break;
+      if (choices.length >= choiceCount) {break;}
       choices.push(candidate);
     }
 
@@ -968,8 +1312,8 @@ export class BotnetDefenseGame extends BaseMinigame {
    * @param choiceIndex - Index into the current upgradeChoices array (0-based)
    */
   applyUpgrade(choiceIndex: number): void {
-    if (!this._isLevelingUp) return;
-    if (choiceIndex < 0 || choiceIndex >= this._upgradeChoices.length) return;
+    if (!this._isLevelingUp) {return;}
+    if (choiceIndex < 0 || choiceIndex >= this._upgradeChoices.length) {return;}
 
     const choice = this._upgradeChoices[choiceIndex]!;
 
