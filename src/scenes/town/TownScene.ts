@@ -88,7 +88,7 @@ function createStoreVisual(
     width: 60,
     height: 30,
     functional,
-    ascii: [`  [${signText}]  `],
+    ascii: [],
   };
   if (promptText !== undefined) {
     visual.promptText = promptText;

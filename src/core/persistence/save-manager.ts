@@ -509,6 +509,31 @@ export class SaveManager {
       migratedState.version = '2.1.0';
     }
 
+    // Version 2.1.0 -> 2.2.0: Migrate book-summarizer from apartment (boolean) to equipment (numeric level)
+    if (migratedState.version === '2.1.0') {
+      const apartmentCopy = { ...migratedState.upgrades.apartment };
+      const equipmentCopy = { ...migratedState.upgrades.equipment };
+
+      // If book-summarizer was purchased as apartment boolean, move it to equipment level 1
+      if (apartmentCopy['book-summarizer'] === true) {
+        delete apartmentCopy['book-summarizer'];
+        // Only set to 1 if not already in equipment (shouldn't be, but be safe)
+        if (!equipmentCopy['book-summarizer']) {
+          equipmentCopy['book-summarizer'] = 1;
+        }
+      }
+
+      migratedState = {
+        ...migratedState,
+        upgrades: {
+          ...migratedState.upgrades,
+          apartment: apartmentCopy,
+          equipment: equipmentCopy,
+        },
+      };
+      migratedState.version = '2.2.0';
+    }
+
     // Ensure version is current after migrations
     return {
       ...migratedState,

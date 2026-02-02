@@ -181,7 +181,7 @@ export class CodeBreakerGame extends BaseMinigame {
 
   /**
    * Set the upgrade bonus time (call before start()).
-   * This is the total bonus from all upgrades (Better Keyboard + Coffee Machine).
+   * This is the total bonus from all upgrades (Better Keyboard).
    *
    * @param bonusMs - Bonus time in milliseconds
    */

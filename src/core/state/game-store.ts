@@ -40,6 +40,12 @@ import {
   createDefaultMinigameState,
   MAX_TOP_SCORES,
 } from '../types';
+import {
+  getAllUpgrades,
+  type EquipmentUpgrade,
+  type HardwareUpgrade,
+  type MinigameUpgrade,
+} from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
 // Types
@@ -450,6 +456,111 @@ export function createGameStore(initialState?: Partial<GameState>): GameStore {
             offlineProgressEnabled: !state.settings.offlineProgressEnabled,
           },
         }));
+      },
+
+      toggleTestMode: (): void => {
+        const state = get();
+        const newTestMode = !state.settings.testMode;
+
+        // Update the testMode flag
+        set((s) => ({
+          settings: {
+            ...s.settings,
+            testMode: newTestMode,
+          },
+        }));
+
+        // When enabling test mode, grant everything (one-way unlock)
+        if (newTestMode) {
+          const actions = get();
+
+          // Grant large resource amounts
+          actions.setResource('money', '999999');
+          actions.setResource('technique', '999');
+          actions.setResource('renown', '999');
+
+          // Unlock all minigames
+          const minigameIds = Object.keys(get().minigames);
+          for (const id of minigameIds) {
+            actions.unlockMinigame(id);
+          }
+
+          // Max all upgrades based on category
+          const allUpgrades = getAllUpgrades();
+          for (const upgrade of allUpgrades) {
+            switch (upgrade.category) {
+              case 'equipment': {
+                // Set equipment upgrades to a high level (10)
+                const equip = upgrade as EquipmentUpgrade;
+                const maxLevel = equip.maxLevel === 0 ? 10 : equip.maxLevel;
+                set((s) => ({
+                  upgrades: {
+                    ...s.upgrades,
+                    equipment: {
+                      ...s.upgrades.equipment,
+                      [upgrade.id]: maxLevel,
+                    },
+                  },
+                }));
+                break;
+              }
+
+              case 'apartment':
+                actions.purchaseApartmentUpgrade(upgrade.id);
+                break;
+
+              case 'hardware': {
+                // Hardware stored in equipment (numeric level)
+                const hardware = upgrade as HardwareUpgrade;
+                const hardwareMaxLevel = hardware.maxLevel === 0 ? 10 : hardware.maxLevel;
+                set((s) => ({
+                  upgrades: {
+                    ...s.upgrades,
+                    equipment: {
+                      ...s.upgrades.equipment,
+                      [upgrade.id]: hardwareMaxLevel,
+                    },
+                  },
+                }));
+                // Enable associated automation if present
+                if (hardware.automationId) {
+                  actions.enableAutomation(hardware.automationId);
+                }
+                break;
+              }
+
+              case 'minigame': {
+                // Set minigame upgrades to a high level (5)
+                const mg = upgrade as MinigameUpgrade;
+                const mgMaxLevel = mg.maxLevel === 0 ? 5 : mg.maxLevel;
+                actions.ensureMinigameState(mg.minigameId);
+                set((s) => {
+                  const minigame = s.minigames[mg.minigameId] ?? createDefaultMinigameState(true);
+                  return {
+                    minigames: {
+                      ...s.minigames,
+                      [mg.minigameId]: {
+                        ...minigame,
+                        upgrades: {
+                          ...minigame.upgrades,
+                          [upgrade.id]: mgMaxLevel,
+                        },
+                      },
+                    },
+                  };
+                });
+                break;
+              }
+
+              case 'consumable':
+                // Skip consumables - they grant resources on purchase
+                // and resources are already set to high amounts
+                break;
+            }
+          }
+
+          console.log('[GameStore] Test mode enabled: all minigames unlocked, resources granted, upgrades maxed, automations enabled');
+        }
       },
 
       // ======================================================================

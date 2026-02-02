@@ -600,7 +600,7 @@ export class BotnetDefenseGame extends BaseMinigame {
       }
     }
 
-    const barrierCount = FIREWALL_COUNT + Math.floor((weapon.level - 1) * 0.5);
+    const barrierCount = FIREWALL_COUNT + (weapon.level - 1);
     const damage = Math.ceil(FIREWALL_DAMAGE * (1 + (weapon.level - 1) * 0.3));
 
     for (let i = 0; i < barrierCount; i++) {
@@ -624,6 +624,7 @@ export class BotnetDefenseGame extends BaseMinigame {
         // velocityY unused for firewall; store 0
         velocityY: 0,
         lifetime: FIREWALL_LIFETIME,
+        hitEnemyIds: new Set<number>(),
       };
       this._projectiles.push(projectile);
     }
@@ -651,6 +652,7 @@ export class BotnetDefenseGame extends BaseMinigame {
       velocityX: PORT_SCANNER_EXPAND_SPEED + weapon.level * 20, // expansion speed
       velocityY: 0, // unused
       lifetime: PORT_SCANNER_LIFETIME + weapon.level * 200,
+      hitEnemyIds: new Set<number>(),
     };
     this._projectiles.push(projectile);
 
@@ -1033,6 +1035,14 @@ export class BotnetDefenseGame extends BaseMinigame {
         }
 
         if (hit) {
+          // Firewall and Port Scanner pierce through enemies; others are consumed
+          const piercing = proj.weaponType === 'firewall' || proj.weaponType === 'port-scanner';
+
+          // For piercing projectiles, skip enemies already hit by this projectile
+          if (piercing && proj.hitEnemyIds?.has(enemy.id)) {
+            continue;
+          }
+
           // Apply damage (with global damage multiplier for non-firewall/port-scanner;
           // those already have it baked in at fire time)
           const effectiveDamage = (proj.weaponType === 'ping' || proj.weaponType === 'exploit')
@@ -1040,8 +1050,11 @@ export class BotnetDefenseGame extends BaseMinigame {
             : proj.damage;
           enemy.hp -= effectiveDamage;
 
-          // Firewall and Port Scanner pierce through enemies; others are consumed
-          const piercing = proj.weaponType === 'firewall' || proj.weaponType === 'port-scanner';
+          // Track hit enemy for piercing projectiles
+          if (piercing) {
+            proj.hitEnemyIds?.add(enemy.id);
+          }
+
           if (!piercing) {
             proj.active = false;
           }
@@ -1226,7 +1239,7 @@ export class BotnetDefenseGame extends BaseMinigame {
           type: 'new-weapon',
           weaponType: wt,
           label: `New: ${this.formatWeaponName(wt)}`,
-          description: `Unlock the ${this.formatWeaponName(wt)} weapon.`,
+          description: this.getNewWeaponDescription(wt),
         });
       }
     }
@@ -1238,7 +1251,7 @@ export class BotnetDefenseGame extends BaseMinigame {
           type: 'upgrade-weapon',
           weaponType: weapon.type,
           label: `${this.formatWeaponName(weapon.type)} Lv.${weapon.level + 1}`,
-          description: `Upgrade ${this.formatWeaponName(weapon.type)} to level ${weapon.level + 1}.`,
+          description: this.getUpgradeWeaponDescription(weapon.type),
         });
       }
     }
@@ -1377,6 +1390,38 @@ export class BotnetDefenseGame extends BaseMinigame {
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+  }
+
+  /**
+   * Get a human-readable description for unlocking a new weapon.
+   */
+  private getNewWeaponDescription(type: WeaponType): string {
+    switch (type) {
+      case 'ping':
+        return 'Fires a projectile in the direction you\'re facing. Fast cooldown, single target.';
+      case 'firewall':
+        return 'Creates a rotating barrier around you that damages enemies on contact.';
+      case 'port-scanner':
+        return 'Emits an expanding ring that damages all enemies it passes through.';
+      case 'exploit':
+        return 'Launches a homing projectile that seeks the nearest enemy.';
+    }
+  }
+
+  /**
+   * Get a human-readable description for upgrading an existing weapon.
+   */
+  private getUpgradeWeaponDescription(type: WeaponType): string {
+    switch (type) {
+      case 'ping':
+        return 'Adds more projectiles and reduces cooldown.';
+      case 'firewall':
+        return 'Adds another rotating barrier and increases damage.';
+      case 'port-scanner':
+        return 'Increases ring damage, expansion speed, and duration.';
+      case 'exploit':
+        return 'Increases damage and homing accuracy.';
+    }
   }
 
   /**

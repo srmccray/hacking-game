@@ -12,7 +12,6 @@
  * +------------------------------------------+
  * |                                          |
  * |   > Training Manual     $10      +1 TP   |
- * |     Coffee Machine      $500     +10s    |
  * |     ...                                  |
  * |                                          |
  * +------------------------------------------+
@@ -67,7 +66,6 @@ const LAYOUT = {
 /** Upgrades available from the couch */
 const COUCH_UPGRADE_IDS = [
   'training-manual',  // Training Manual - grants TP
-  'coffee-machine',   // Coffee Machine - +10s minigame time
 ];
 
 // ============================================================================

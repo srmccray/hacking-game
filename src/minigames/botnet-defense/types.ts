@@ -48,6 +48,8 @@ export interface Projectile extends Entity {
   velocityY: number;
   /** Remaining lifetime in milliseconds before the projectile despawns */
   lifetime: number;
+  /** Set of enemy IDs already hit by this piercing projectile */
+  hitEnemyIds?: Set<number>;
 }
 
 /** An XP gem dropped by a defeated enemy. */

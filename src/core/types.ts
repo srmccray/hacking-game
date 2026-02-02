@@ -137,6 +137,8 @@ export interface StatsState {
 export interface SettingsState {
   /** Whether offline progression is enabled */
   offlineProgressEnabled: boolean;
+  /** Whether test mode is active (one-way unlock for the session) */
+  testMode: boolean;
 }
 
 // ============================================================================
@@ -321,6 +323,14 @@ export interface GameActions {
    */
   toggleOfflineProgress: () => void;
 
+  /**
+   * Toggle test mode. When enabled: unlocks all minigames, grants large resource
+   * amounts, maxes equipment upgrades, purchases all apartment upgrades, and
+   * enables all automations. When disabled: does not revoke anything (one-way
+   * unlock for the session).
+   */
+  toggleTestMode: () => void;
+
   // Save/load actions
   /**
    * Update the lastSaved timestamp to current time.
@@ -445,7 +455,7 @@ export interface MinigameDefinition {
  * Current save format version.
  * Increment when making breaking changes to the save format.
  */
-export const SAVE_VERSION = '2.1.0';
+export const SAVE_VERSION = '2.2.0';
 
 /**
  * Maximum number of top scores to keep per minigame.
@@ -498,6 +508,7 @@ export function createInitialGameState(): GameState {
 
     settings: {
       offlineProgressEnabled: true,
+      testMode: false,
     },
 
     stats: {

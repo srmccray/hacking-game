@@ -16,6 +16,7 @@
 
 import { isGreaterOrEqual } from '../resources/resource-manager';
 import type { GameStore } from '../state/game-store';
+import { getUpgradeLevel } from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
 // Types
@@ -54,23 +55,27 @@ export interface AutomationDefinition {
 const bookSummarizerAutomation: AutomationDefinition = {
   id: 'book-summarizer',
   name: 'Book Summarizer',
-  description: 'Converts $10 into +1 TP every 60 seconds.',
+  description: 'Converts $10 into TP every 60 seconds. TP granted equals upgrade level.',
   intervalMs: 60 * 1000, // 60 seconds
   enabledByUpgrade: 'book-summarizer',
   execute: (store: GameStore): boolean => {
     const state = store.getState();
+    const level = getUpgradeLevel(store, 'book-summarizer');
+    if (level <= 0) {return false;}
+
     const moneyCost = '10';
+    const tpGrant = String(level);
 
     // Check if we have enough money
     if (!isGreaterOrEqual(state.resources.money, moneyCost)) {
       return false;
     }
 
-    // Deduct money and grant TP
+    // Deduct money and grant TP scaled by level
     const success = state.subtractResource('money', moneyCost);
     if (success) {
-      state.addResource('technique', '1');
-      console.log('[Automation] Book Summarizer: Converted $10 to +1 TP');
+      state.addResource('technique', tpGrant);
+      console.log(`[Automation] Book Summarizer: Converted $10 to +${level} TP (level ${level})`);
       return true;
     }
 
@@ -123,9 +128,8 @@ export function isAutomationEnabled(store: GameStore, automationId: string): boo
   const definition = getAutomationDefinition(automationId);
   if (!definition) {return false;}
 
-  // Check if the enabling upgrade has been purchased
-  const state = store.getState();
-  return state.upgrades.apartment[definition.enabledByUpgrade] === true;
+  // Check if the enabling upgrade has been purchased (level >= 1)
+  return getUpgradeLevel(store, definition.enabledByUpgrade) >= 1;
 }
 
 /**

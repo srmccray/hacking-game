@@ -18,6 +18,7 @@ import { toDecimal, addDecimals, multiplyDecimals, divideDecimals, ZERO } from '
 import type { GameStore } from '../state/game-store';
 import type { GameConfig, AutoGenerationConfig } from '../../game/GameConfig';
 import { getAllAutomations, isAutomationEnabled } from './automations';
+import { getUpgradeLevel } from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
 // Rate Calculation
@@ -109,10 +110,16 @@ export function getAutoGenerationMultiplier(store: GameStore): string {
  */
 /**
  * Resource output definition for an automation.
- * Maps automation ID to the resource it produces and how much per trigger.
+ * Maps automation ID to the resource it produces and the upgrade ID used for level scaling.
+ * Amount per trigger = max(1, upgradeLevel) for level-scaled automations.
  */
-const AUTOMATION_RESOURCE_OUTPUT: Record<string, { resource: 'technique' | 'renown'; amountPerTrigger: string }> = {
-  'book-summarizer': { resource: 'technique', amountPerTrigger: '1' },
+const AUTOMATION_RESOURCE_OUTPUT: Record<string, {
+  resource: 'technique' | 'renown';
+  baseAmountPerTrigger: string;
+  /** If set, amount per trigger is multiplied by the upgrade level */
+  scalesWithUpgrade?: string;
+}> = {
+  'book-summarizer': { resource: 'technique', baseAmountPerTrigger: '1', scalesWithUpgrade: 'book-summarizer' },
 };
 
 export function getAllGenerationRates(store: GameStore, config: GameConfig): {
@@ -142,9 +149,18 @@ export function getAllGenerationRates(store: GameStore, config: GameConfig): {
       continue;
     }
 
+    // Calculate effective amount per trigger (scaled by upgrade level if applicable)
+    let amountPerTrigger = output.baseAmountPerTrigger;
+    if (output.scalesWithUpgrade) {
+      const level = getUpgradeLevel(store, output.scalesWithUpgrade);
+      if (level > 0) {
+        amountPerTrigger = multiplyDecimals(output.baseAmountPerTrigger, String(level));
+      }
+    }
+
     // Rate = amountPerTrigger / (intervalMs / 1000) => amount per second
     const intervalSeconds = String(definition.intervalMs / 1000);
-    const ratePerSecond = divideDecimals(output.amountPerTrigger, intervalSeconds);
+    const ratePerSecond = divideDecimals(amountPerTrigger, intervalSeconds);
 
     if (output.resource === 'technique') {
       techniqueRate = addDecimals(techniqueRate, ratePerSecond);

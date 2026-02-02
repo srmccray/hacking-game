@@ -39,6 +39,7 @@ import {
 import { formatResource } from '../../core/resources/resource-manager';
 import {
   getUpgradeDisplayInfo,
+  isUpgradeMaxed,
   purchaseUpgrade,
   getUpgradesByCategory,
   getUpgrade,
@@ -479,15 +480,14 @@ class WorkbenchUpgradesScene implements Scene {
       return;
     }
 
-    // Check if this is an owned hardware upgrade with a toggleable automation
+    // Check if this is a maxed hardware upgrade with a toggleable automation
     const upgrade = getUpgrade(upgradeId);
     if (upgrade?.category === 'hardware') {
       const hardwareUpgrade = upgrade as HardwareUpgrade;
-      const state = this.game.store.getState();
-      const isOwned = state.upgrades.apartment[upgradeId] === true;
+      const isMaxed = isUpgradeMaxed(this.game.store, upgradeId);
 
-      if (isOwned && hardwareUpgrade.automationId) {
-        // Toggle the automation
+      if (isMaxed && hardwareUpgrade.automationId) {
+        // Toggle the automation when fully maxed
         this.toggleAutomation(hardwareUpgrade.automationId);
         return;
       }

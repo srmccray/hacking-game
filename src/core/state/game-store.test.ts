@@ -17,7 +17,7 @@ describe('game-store', () => {
     it('should create a store with initial state', () => {
       const state = store.getState();
 
-      expect(state.version).toBe('2.1.0');
+      expect(state.version).toBe('2.2.0');
       expect(state.playerName).toBe('');
       expect(state.resources.money).toBe('0');
       expect(state.resources.technique).toBe('0');
@@ -375,6 +375,7 @@ describe('game-store', () => {
           automations: {},
           settings: {
             offlineProgressEnabled: false,
+            testMode: false,
           },
           stats: {
             totalPlayTime: 3600000,

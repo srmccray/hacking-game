@@ -277,17 +277,6 @@ export class Station {
     const promptContainer = new Container();
     promptContainer.label = 'interaction-prompt';
 
-    // Background box
-    const bg = new Graphics();
-    bg.fill({ color: 0x0a0a0a, alpha: 0.9 });
-    bg.roundRect(-60, -15, 120, 30, 4);
-    bg.fill();
-
-    bg.stroke({ color: COLORS.TERMINAL_GREEN, width: 1, alpha: 0.8 });
-    bg.roundRect(-60, -15, 120, 30, 4);
-    bg.stroke();
-    promptContainer.addChild(bg);
-
     // Prompt text - use custom prompt text if provided, otherwise default
     const promptText = visual.functional
       ? (visual.promptText ?? '[ENTER] Interact')
@@ -311,6 +300,19 @@ export class Station {
       style: textStyle,
     });
     text.anchor.set(0.5);
+
+    // Size background box to fit the text with padding
+    const boxWidth = Math.max(120, text.width + 20);
+    const boxHeight = Math.max(30, text.height + 10);
+    const bg = new Graphics();
+    bg.fill({ color: 0x0a0a0a, alpha: 0.9 });
+    bg.roundRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, 4);
+    bg.fill();
+
+    bg.stroke({ color: COLORS.TERMINAL_GREEN, width: 1, alpha: 0.8 });
+    bg.roundRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, 4);
+    bg.stroke();
+    promptContainer.addChild(bg);
     promptContainer.addChild(text);
 
     return promptContainer;
