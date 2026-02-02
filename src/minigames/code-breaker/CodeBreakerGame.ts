@@ -314,13 +314,24 @@ export class CodeBreakerGame extends BaseMinigame {
   private handleCodeComplete(): void {
     this._codesCracked++;
 
-    // Accumulate money: baseMoneyPerCode * current code length
-    this._totalMoneyEarned += this.config.baseMoneyPerCode * this._currentCodeLength;
+    // Save old code length for money calculation (earned for the code just completed)
+    const completedCodeLength = this._currentCodeLength;
+
+    // Accumulate money: baseMoneyPerCode * completed code length
+    this._totalMoneyEarned += this.config.baseMoneyPerCode * completedCodeLength;
 
     // Update score (raw codes cracked, onEnd multiplies by 100)
     this._score = this._codesCracked;
 
-    // Emit sequence-complete event
+    // Escalate: increase code length BEFORE emitting so listeners see updated state
+    this._currentCodeLength += this.config.lengthIncrement;
+
+    // Generate new code and reset timer BEFORE emitting so display rebuilds with new sequence
+    this.generateNewSequence();
+    this.resetPerCodeTimer();
+
+    // Emit sequence-complete event with the NEW code length so the scene
+    // can rebuild the display with the correct number of boxes
     this.emit('sequence-complete' as MinigameEventType, {
       minigameId: this.id,
       data: {
@@ -329,13 +340,6 @@ export class CodeBreakerGame extends BaseMinigame {
         moneyEarned: this._totalMoneyEarned,
       },
     });
-
-    // Escalate: increase code length
-    this._currentCodeLength += this.config.lengthIncrement;
-
-    // Generate new code and reset timer
-    this.generateNewSequence();
-    this.resetPerCodeTimer();
   }
 
   // ==========================================================================

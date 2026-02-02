@@ -10,7 +10,7 @@
  *
  * Visual Layout:
  * +---------------------------------------------------+
- * | HP: #####  KILLS: 12  TIME: 02:45  SCORE: 340     |
+ * | HP: #####  KILLS: 12  SURVIVED: 02:45  SCORE: 340  |
  * | XP: [========          ] LVL 3                     |
  * +---------------------------------------------------+
  * |                                                     |
@@ -495,7 +495,7 @@ class BotnetDefenseScene implements Scene {
 
     // Timer label
     const timerLabel = new Text({
-      text: 'TIME:',
+      text: 'SURVIVED:',
       style: terminalDimStyle,
     });
     timerLabel.anchor.set(0, 0.5);
@@ -505,11 +505,11 @@ class BotnetDefenseScene implements Scene {
 
     // Timer value
     this.timerText = new Text({
-      text: '03:00',
+      text: '00:00',
       style: terminalBrightStyle,
     });
     this.timerText.anchor.set(0, 0.5);
-    this.timerText.x = leftX + 400;
+    this.timerText.x = leftX + 430;
     this.timerText.y = hudY;
     hudContainer.addChild(this.timerText);
 
@@ -912,16 +912,9 @@ class BotnetDefenseScene implements Scene {
       this.killsText.text = state.kills.toString();
     }
 
-    // Update timer
+    // Update timer - count up (survival time)
     if (this.timerText && this.minigame) {
-      this.timerText.text = formatTimeMMSS(this.minigame.timeRemainingMs);
-
-      // Flash red when low on time
-      if (this.minigame.timeRemainingMs <= 10000) {
-        this.timerText.style.fill = COLORS.TERMINAL_RED;
-      } else {
-        this.timerText.style.fill = COLORS.TERMINAL_BRIGHT;
-      }
+      this.timerText.text = formatTimeMMSS(this.minigame.playTimeMs);
     }
 
     // Update score
@@ -1210,11 +1203,9 @@ class BotnetDefenseScene implements Scene {
     boxBorder.stroke({ color: COLORS.TERMINAL_GREEN, width: 2 });
     this.resultsOverlay.addChild(boxBorder);
 
-    // Title - player death vs time up
-    const isDead = gameState.player.hp <= 0;
-    const titleText = isDead ? 'SYSTEM COMPROMISED' : "TIME'S UP";
+    // Title - game always ends on player death in survival mode
     const title = new Text({
-      text: titleText,
+      text: 'SYSTEM COMPROMISED',
       style: titleStyle,
     });
     title.anchor.set(0.5, 0);

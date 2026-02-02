@@ -57,6 +57,8 @@ export interface StationVisual {
   promptText?: string;
   /** Custom Y offset for the interaction prompt (optional, defaults to -height - 60) */
   promptYOffset?: number;
+  /** Custom X offset for the interaction prompt (optional, defaults to 0 / center-aligned) */
+  promptXOffset?: number;
 }
 
 // ============================================================================
@@ -218,6 +220,7 @@ export class Station {
 
     // Create interaction prompt (hidden by default)
     this.prompt = this.createInteractionPrompt(visual);
+    this.prompt.x = visual.promptXOffset ?? 0;
     this.prompt.y = visual.promptYOffset ?? (-visual.height - 60);
     this.prompt.visible = false;
     this.container.addChild(this.prompt);

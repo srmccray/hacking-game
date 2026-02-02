@@ -285,7 +285,7 @@ describe('CodeBreakerGame', () => {
           minigameId: 'code-breaker',
           data: expect.objectContaining({
             sequenceNumber: 1,
-            codeLength: defaultConfig.startingCodeLength,
+            codeLength: defaultConfig.startingCodeLength + defaultConfig.lengthIncrement,
           }),
         })
       );

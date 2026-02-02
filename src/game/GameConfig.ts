@@ -281,7 +281,7 @@ export const DEFAULT_CONFIG: GameConfig = {
       arenaHeight: 500,          // Leave room for HUD at top
       playerSpeed: 180,          // Pixels per second
       playerMaxHP: 5,
-      timeLimitMs: 180_000,      // 3 minutes
+      timeLimitMs: 0,             // No time limit - survival mode
       baseXPToLevel: 10,
       xpLevelScaling: 1.3,       // Each level needs 30% more XP
       pickupRadius: 50,          // Pixels - magnetic pull range

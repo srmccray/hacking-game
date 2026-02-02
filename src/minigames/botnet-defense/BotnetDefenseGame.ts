@@ -280,8 +280,7 @@ export class BotnetDefenseGame extends BaseMinigame {
   // ==========================================================================
 
   protected onStart(): void {
-    // Set up the timer from config
-    this.setTimeLimit(this.config.timeLimitMs);
+    // No time limit - game ends only on player death (survival mode)
 
     // Reset all game-specific state
     this._nextEntityId = 0;
