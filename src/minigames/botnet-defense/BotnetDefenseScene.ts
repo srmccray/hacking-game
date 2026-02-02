@@ -51,6 +51,7 @@ import {
 import { GameEvents } from '../../events/game-events';
 import { formatTimeMMSS } from '../BaseMinigame';
 import { createMinigameInterstitialScene } from '../../scenes/minigame-interstitial';
+import { getDamageMultBonus, getHealthBonus } from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
 // Configuration
@@ -249,6 +250,12 @@ class BotnetDefenseScene implements Scene {
     // Create minigame instance
     const config = (this.game.config as { minigames: { botnetDefense: unknown } }).minigames.botnetDefense;
     this.minigame = new BotnetDefenseGame(config as import('../../game/GameConfig').BotnetDefenseConfig);
+
+    // Apply persistent upgrade bonuses before starting
+    const damageBonus = getDamageMultBonus(this.game.store);
+    const healthBonus = getHealthBonus(this.game.store);
+    this.minigame.setDamageMultBonus(damageBonus);
+    this.minigame.setHealthBonus(healthBonus);
 
     // Set up minigame event listeners
     this.setupMinigameListeners();

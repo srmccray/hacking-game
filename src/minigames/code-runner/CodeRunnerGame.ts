@@ -177,6 +177,9 @@ export class CodeRunnerGame extends BaseMinigame {
   /** Bonus move speed from upgrades (in pixels/sec) */
   private readonly _moveSpeedBonus: number;
 
+  /** Center bias strength for gap positioning (0 = random, 1 = always center) */
+  private readonly _centerBias: number;
+
   /** Wall milestones triggered this session (to avoid re-triggering). */
   private _triggeredMilestones: Set<number> = new Set();
 
@@ -193,8 +196,9 @@ export class CodeRunnerGame extends BaseMinigame {
    * @param gapWidthBonus - Bonus gap width from upgrades (in pixels, default 0)
    * @param wallSpacingBonus - Bonus vertical wall spacing from upgrades (in pixels, default 0)
    * @param moveSpeedBonus - Bonus player move speed from upgrades (in pixels/sec, default 0)
+   * @param centerBias - Center bias strength for gap positions (0 = random, 1 = always center, default 0)
    */
-  constructor(config?: CodeRunnerConfig, canvasWidth: number = 800, canvasHeight: number = 600, gapWidthBonus: number = 0, wallSpacingBonus: number = 0, moveSpeedBonus: number = 0) {
+  constructor(config?: CodeRunnerConfig, canvasWidth: number = 800, canvasHeight: number = 600, gapWidthBonus: number = 0, wallSpacingBonus: number = 0, moveSpeedBonus: number = 0, centerBias: number = 0) {
     super();
     this.config = config ?? DEFAULT_CONFIG.minigames.codeRunner;
     this.canvasWidth = canvasWidth;
@@ -202,6 +206,7 @@ export class CodeRunnerGame extends BaseMinigame {
     this._gapWidthBonus = gapWidthBonus;
     this._wallSpacingBonus = wallSpacingBonus;
     this._moveSpeedBonus = moveSpeedBonus;
+    this._centerBias = Math.max(0, Math.min(1, centerBias));
 
     // Initialize player position
     this._playerX = canvasWidth / 2;
@@ -456,8 +461,12 @@ export class CodeRunnerGame extends BaseMinigame {
     const maxGapEnd = this.canvasWidth - 40; // Minimum margin from right edge
     const gapWidth = Math.max(30, this.config.gapWidth + this._gapWidthBonus - this._gapWidthPenalty);
 
-    // Random gap start position
-    const gapStart = minGapStart + Math.random() * (maxGapEnd - gapWidth - minGapStart);
+    // Gap start position with optional center bias
+    const range = maxGapEnd - gapWidth - minGapStart;
+    const center = range / 2;
+    const raw = Math.random() * range;
+    const biased = raw + (center - raw) * this._centerBias;
+    const gapStart = minGapStart + biased;
     const gapEnd = gapStart + gapWidth;
 
     const obstacle: Obstacle = {
@@ -681,7 +690,8 @@ export function createCodeRunnerGame(
   canvasHeight?: number,
   gapWidthBonus?: number,
   wallSpacingBonus?: number,
-  moveSpeedBonus?: number
+  moveSpeedBonus?: number,
+  centerBias?: number
 ): CodeRunnerGame {
-  return new CodeRunnerGame(config, canvasWidth, canvasHeight, gapWidthBonus, wallSpacingBonus, moveSpeedBonus);
+  return new CodeRunnerGame(config, canvasWidth, canvasHeight, gapWidthBonus, wallSpacingBonus, moveSpeedBonus, centerBias);
 }

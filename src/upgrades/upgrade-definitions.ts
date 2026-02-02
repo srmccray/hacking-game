@@ -59,7 +59,12 @@ export type ConsumableEffectType =
 export type MinigameEffectType =
   | 'gap_width_bonus' // Increases Code Runner gap width
   | 'wall_spacing_bonus' // Increases Code Runner vertical wall spacing
-  | 'move_speed_bonus'; // Increases Code Runner player move speed
+  | 'move_speed_bonus' // Increases Code Runner player move speed
+  | 'center_bias' // Biases Code Runner gap positions toward center
+  | 'time_bonus' // Adds bonus time to Code Breaker per-code timer
+  | 'code_length_reduction' // Reduces starting code length in Code Breaker
+  | 'damage_multiplier_bonus' // Adds damage multiplier bonus for Botnet Defense
+  | 'health_bonus'; // Adds extra HP for Botnet Defense
 
 /**
  * Hardware upgrade effect types (requires dual currency)
@@ -312,6 +317,114 @@ const overclockUpgrade: MinigameUpgrade = {
   effectPerLevel: 25, // +25 pixels/sec per level (roughly 10% of base 250)
 };
 
+/**
+ * Central Router (Minigame - Code Runner)
+ * Biases gap positions toward the center of the screen.
+ * Cost: 100 TP base, +50 TP per level (100, 150, 200...)
+ */
+const centralRouterUpgrade: MinigameUpgrade = {
+  id: 'central-router',
+  name: 'Central Router',
+  description: 'Routes data packets through central channels, making gaps appear closer to the middle.',
+  category: 'minigame',
+  minigameId: 'code-runner',
+  costResource: 'technique',
+  baseCost: '100',
+  maxLevel: 3,
+  costIncrement: '50', // +50 TP per level (100, 150, 200)
+  effectType: 'center_bias',
+  baseEffect: 0.3, // Base bias strength at level 1
+  effectPerLevel: 0.3, // +0.3 per level (0.3, 0.6, 0.9)
+};
+
+// ----------------------------------------------------------------------------
+// Code Breaker Minigame Upgrades
+// ----------------------------------------------------------------------------
+
+/**
+ * Timing Exploit (Minigame - Code Breaker)
+ * Adds bonus time to the per-code timer.
+ * Cost: 10 TP base, +10 TP per level (10, 20, 30, 40...)
+ */
+const timingExploitUpgrade: MinigameUpgrade = {
+  id: 'timing-exploit',
+  name: 'Timing Exploit',
+  description: 'Exploits clock synchronization flaws to buy more time for each code',
+  category: 'minigame',
+  minigameId: 'code-breaker',
+  costResource: 'technique',
+  baseCost: '10',
+  maxLevel: 10,
+  costIncrement: '10', // +10 TP per level (10, 20, 30, 40...)
+  effectType: 'time_bonus',
+  baseEffect: 500, // 500ms base at level 1
+  effectPerLevel: 500, // +500ms per level
+};
+
+/**
+ * Entropy Reducer (Minigame - Code Breaker)
+ * Reduces the starting code length so codes start shorter.
+ * Cost: 100 TP base, +100 TP per level (100, 200, 300, 400)
+ */
+const entropyReducerUpgrade: MinigameUpgrade = {
+  id: 'entropy-reducer',
+  name: 'Entropy Reducer',
+  description: 'Pre-analyzes encryption patterns so codes start shorter — fewer letters to crack',
+  category: 'minigame',
+  minigameId: 'code-breaker',
+  costResource: 'technique',
+  baseCost: '100',
+  maxLevel: 4,
+  costIncrement: '100', // +100 TP per level (100, 200, 300, 400)
+  effectType: 'code_length_reduction',
+  baseEffect: 1, // 1 letter reduced at level 1
+  effectPerLevel: 1, // +1 letter per level
+};
+
+// ----------------------------------------------------------------------------
+// Botnet Defense Minigame Upgrades
+// ----------------------------------------------------------------------------
+
+/**
+ * Payload Amplifier (Minigame - Botnet Defense)
+ * Increases all weapon damage by 10% per level (additive multiplier bonus).
+ * Cost: 10 TP base, +10 TP per level (10, 20, 30...)
+ */
+const payloadAmplifierUpgrade: MinigameUpgrade = {
+  id: 'payload-amplifier',
+  name: 'Payload Amplifier',
+  description: 'Injects more potent payloads into your attacks \u2014 all weapons deal 10% more damage per level',
+  category: 'minigame',
+  minigameId: 'botnet-defense',
+  costResource: 'technique',
+  baseCost: '10',
+  maxLevel: 10,
+  costIncrement: '10', // +10 TP per level (10, 20, 30...)
+  effectType: 'damage_multiplier_bonus',
+  baseEffect: 0.1, // 10% at level 1
+  effectPerLevel: 0.1, // +10% per level
+};
+
+/**
+ * Redundant Systems (Minigame - Botnet Defense)
+ * Adds extra HP to the player's network node.
+ * Cost: 100 TP base, +100 TP per level (100, 200, 300...)
+ */
+const redundantSystemsUpgrade: MinigameUpgrade = {
+  id: 'redundant-systems',
+  name: 'Redundant Systems',
+  description: 'Adds backup systems to your network node \u2014 each level grants one additional hit point',
+  category: 'minigame',
+  minigameId: 'botnet-defense',
+  costResource: 'technique',
+  baseCost: '100',
+  maxLevel: 10,
+  costIncrement: '100', // +100 TP per level (100, 200, 300...)
+  effectType: 'health_bonus',
+  baseEffect: 1, // 1 HP at level 1
+  effectPerLevel: 1, // +1 HP per level
+};
+
 // ============================================================================
 // Upgrade Registry
 // ============================================================================
@@ -327,6 +440,11 @@ const UPGRADES: Record<string, Upgrade> = {
   'gap-expander': gapExpanderUpgrade,
   'buffer-overflow': bufferOverflowUpgrade,
   'overclock': overclockUpgrade,
+  'central-router': centralRouterUpgrade,
+  'timing-exploit': timingExploitUpgrade,
+  'entropy-reducer': entropyReducerUpgrade,
+  'payload-amplifier': payloadAmplifierUpgrade,
+  'redundant-systems': redundantSystemsUpgrade,
 };
 
 /**
@@ -337,7 +455,7 @@ export const UPGRADES_BY_CATEGORY: Record<UpgradeCategory, Upgrade[]> = {
   apartment: [],
   consumable: [trainingManualUpgrade],
   hardware: [bookSummarizerUpgrade],
-  minigame: [gapExpanderUpgrade, bufferOverflowUpgrade, overclockUpgrade],
+  minigame: [gapExpanderUpgrade, bufferOverflowUpgrade, overclockUpgrade, centralRouterUpgrade, timingExploitUpgrade, entropyReducerUpgrade, payloadAmplifierUpgrade, redundantSystemsUpgrade],
 };
 
 /**
@@ -696,6 +814,24 @@ export function getUpgradeEffectFormatted(store: GameStore, upgradeId: string): 
       if (mg.effectType === 'move_speed_bonus') {
         return level > 0 ? `+${level} move speed` : '+1 move speed';
       }
+      if (mg.effectType === 'center_bias') {
+        const pct = Math.round(effect * 100);
+        return level > 0 ? `${pct}% center bias` : '30% center bias';
+      }
+      if (mg.effectType === 'time_bonus') {
+        const seconds = effect / 1000;
+        return level > 0 ? `+${seconds.toFixed(1)}s per code` : '+0.5s per code';
+      }
+      if (mg.effectType === 'code_length_reduction') {
+        return level > 0 ? `-${effect} starting length` : '-1 starting length';
+      }
+      if (mg.effectType === 'damage_multiplier_bonus') {
+        const pct = Math.round(effect * 100);
+        return level > 0 ? `+${pct}% damage` : '+10% damage';
+      }
+      if (mg.effectType === 'health_bonus') {
+        return level > 0 ? `+${effect} HP` : '+1 HP';
+      }
       return `${effect}`;
     }
 
@@ -788,6 +924,61 @@ export function getWallSpacingBonus(store: GameStore): number {
  */
 export function getMoveSpeedBonus(store: GameStore): number {
   return getUpgradeEffect(store, 'overclock');
+}
+
+/**
+ * Get the Code Runner center bias strength from upgrades.
+ * 0 = fully random gap positions, 0.9 = strongly center-biased.
+ *
+ * @param store - The game store
+ * @returns The center bias strength (0 to 1 scale)
+ */
+export function getCenterBiasStrength(store: GameStore): number {
+  return getUpgradeEffect(store, 'central-router');
+}
+
+/**
+ * Get the Code Breaker time bonus from the Timing Exploit upgrade.
+ * Returns the bonus in milliseconds.
+ *
+ * @param store - The game store
+ * @returns The bonus time in milliseconds
+ */
+export function getTimeBonusMs(store: GameStore): number {
+  return getUpgradeEffect(store, 'timing-exploit');
+}
+
+/**
+ * Get the Code Breaker code length reduction from the Entropy Reducer upgrade.
+ * Returns the number of characters to reduce from starting code length.
+ *
+ * @param store - The game store
+ * @returns The number of characters to reduce
+ */
+export function getCodeLengthReduction(store: GameStore): number {
+  return getUpgradeEffect(store, 'entropy-reducer');
+}
+
+/**
+ * Get the Botnet Defense damage multiplier bonus from the Payload Amplifier upgrade.
+ * Returns the ADDITIONAL multiplier (not total). E.g., 0.3 means +30% damage.
+ *
+ * @param store - The game store
+ * @returns The additional damage multiplier bonus (0 if no levels purchased)
+ */
+export function getDamageMultBonus(store: GameStore): number {
+  return getUpgradeEffect(store, 'payload-amplifier');
+}
+
+/**
+ * Get the Botnet Defense health bonus from the Redundant Systems upgrade.
+ * Returns the number of extra HP to add to the player.
+ *
+ * @param store - The game store
+ * @returns The number of bonus HP (0 if no levels purchased)
+ */
+export function getHealthBonus(store: GameStore): number {
+  return getUpgradeEffect(store, 'redundant-systems');
 }
 
 // ============================================================================

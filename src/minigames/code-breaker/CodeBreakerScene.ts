@@ -53,6 +53,8 @@ import { createMinigameInterstitialScene } from '../../scenes/minigame-interstit
 import {
   getMinigameTimeBonus,
   getPerCodeTimeBonus,
+  getTimeBonusMs,
+  getCodeLengthReduction,
 } from '../../upgrades/upgrade-definitions';
 
 // ============================================================================
@@ -197,7 +199,6 @@ class CodeBreakerScene implements Scene {
 
     // Reset session tracking
     this.accumulatedMoney = 0;
-    this.longestCodeLength = this.game.config.minigames.codeBreaker.startingCodeLength;
 
     // Emit scene entered event
     this.game.eventBus.emit(GameEvents.SCENE_ENTERED, {
@@ -206,6 +207,9 @@ class CodeBreakerScene implements Scene {
 
     // Start the game
     this.minigame.start();
+
+    // Track longest code (after start so reduction is applied)
+    this.longestCodeLength = this.minigame.currentCodeLength;
 
     // Build initial code display
     this.rebuildCodeDisplay(this.minigame.currentCodeLength);
@@ -312,12 +316,24 @@ class CodeBreakerScene implements Scene {
     const minigameTimeBonusSec = getMinigameTimeBonus(store);
     const perCodeTimeBonusSec = getPerCodeTimeBonus(store);
 
-    // Both are in seconds, convert to ms and combine
-    const totalBonusMs = (minigameTimeBonusSec + perCodeTimeBonusSec) * 1000;
+    // Equipment bonuses are in seconds, convert to ms
+    const equipmentBonusMs = (minigameTimeBonusSec + perCodeTimeBonusSec) * 1000;
+
+    // Timing Exploit minigame upgrade bonus (already in ms)
+    const timingExploitBonusMs = getTimeBonusMs(store);
+
+    const totalBonusMs = equipmentBonusMs + timingExploitBonusMs;
 
     if (totalBonusMs > 0) {
-      console.log(`[CodeBreakerScene] Applying upgrade bonus: ${totalBonusMs}ms`);
+      console.log(`[CodeBreakerScene] Applying time bonus: ${totalBonusMs}ms (equipment: ${equipmentBonusMs}ms, timing-exploit: ${timingExploitBonusMs}ms)`);
       this.minigame.setUpgradeBonusMs(totalBonusMs);
+    }
+
+    // Entropy Reducer: reduce starting code length
+    const codeLengthReduction = getCodeLengthReduction(store);
+    if (codeLengthReduction > 0) {
+      console.log(`[CodeBreakerScene] Applying code length reduction: -${codeLengthReduction}`);
+      this.minigame.setCodeLengthReduction(codeLengthReduction);
     }
   }
 

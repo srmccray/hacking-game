@@ -53,7 +53,7 @@ import {
   createTerminalStyle,
 } from '../../rendering/styles';
 import { GameEvents } from '../../events/game-events';
-import { getGapWidthBonus, getWallSpacingBonus, getMoveSpeedBonus } from '../../upgrades/upgrade-definitions';
+import { getGapWidthBonus, getWallSpacingBonus, getMoveSpeedBonus, getCenterBiasStrength } from '../../upgrades/upgrade-definitions';
 import { createMinigameInterstitialScene } from '../../scenes/minigame-interstitial';
 
 // ============================================================================
@@ -241,13 +241,15 @@ class CodeRunnerScene implements Scene {
     const gapBonus = getGapWidthBonus(this.game.store);
     const spacingBonus = getWallSpacingBonus(this.game.store);
     const speedBonus = getMoveSpeedBonus(this.game.store);
+    const centerBias = getCenterBiasStrength(this.game.store);
     this.minigame = new CodeRunnerGame(
       this.game.config.minigames.codeRunner,
       width,
       height,
       gapBonus,
       spacingBonus,
-      speedBonus
+      speedBonus,
+      centerBias
     );
 
     // Set up minigame event listeners

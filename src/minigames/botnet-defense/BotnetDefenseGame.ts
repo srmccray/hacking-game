@@ -252,6 +252,12 @@ export class BotnetDefenseGame extends BaseMinigame {
   /** Survival milestones triggered this session (to avoid re-triggering). */
   private _triggeredMilestones: Set<number> = new Set();
 
+  /** Bonus damage multiplier from persistent upgrades (additive, e.g. 0.3 = +30%). */
+  private _upgradeDamageMultBonus: number = 0;
+
+  /** Bonus HP from persistent upgrades. */
+  private _upgradeHealthBonus: number = 0;
+
   // ==========================================================================
   // Input State
   // ==========================================================================
@@ -279,6 +285,31 @@ export class BotnetDefenseGame extends BaseMinigame {
     super();
     this.config = config ?? DEFAULT_CONFIG.minigames.botnetDefense;
     this._player = this.createDefaultPlayer();
+  }
+
+  // ==========================================================================
+  // Upgrade Bonus Setters
+  // ==========================================================================
+
+  /**
+   * Set the bonus damage multiplier from persistent upgrades.
+   * This is the ADDITIONAL multiplier (e.g., 0.3 means +30% damage on top of base 1.0).
+   * Must be called before start() to take effect.
+   *
+   * @param bonus - The additive damage multiplier bonus
+   */
+  setDamageMultBonus(bonus: number): void {
+    this._upgradeDamageMultBonus = bonus;
+  }
+
+  /**
+   * Set the bonus HP from persistent upgrades.
+   * Must be called before start() to take effect.
+   *
+   * @param bonus - The number of extra HP
+   */
+  setHealthBonus(bonus: number): void {
+    this._upgradeHealthBonus = bonus;
   }
 
   // ==========================================================================
@@ -456,14 +487,15 @@ export class BotnetDefenseGame extends BaseMinigame {
    * Create the default player state, centered in the arena.
    */
   private createDefaultPlayer(): PlayerState {
+    const totalMaxHp = this.config.playerMaxHP + this._upgradeHealthBonus;
     return {
       x: this.config.arenaWidth / 2,
       y: this.config.arenaHeight / 2,
-      hp: this.config.playerMaxHP,
-      maxHp: this.config.playerMaxHP,
+      hp: totalMaxHp,
+      maxHp: totalMaxHp,
       speed: this.config.playerSpeed,
       pickupRadius: this.config.pickupRadius,
-      damageMult: 1.0,
+      damageMult: 1.0 + this._upgradeDamageMultBonus,
       iFramesRemaining: 0,
       facingX: 1,  // Default facing right
       facingY: 0,

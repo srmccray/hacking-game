@@ -124,6 +124,9 @@ export class CodeBreakerGame extends BaseMinigame {
   /** Upgrade bonus time in milliseconds (set externally before start) */
   private _upgradeBonusMs: number = 0;
 
+  /** Code length reduction from upgrades (set externally before start) */
+  private _codeLengthReduction: number = 0;
+
   /** Code-length milestones triggered this session (to avoid re-triggering). */
   private _triggeredMilestones: Set<number> = new Set();
 
@@ -209,6 +212,16 @@ export class CodeBreakerGame extends BaseMinigame {
     this._upgradeBonusMs = bonusMs;
   }
 
+  /**
+   * Set the code length reduction (call before start()).
+   * This reduces the starting code length from the Entropy Reducer upgrade.
+   *
+   * @param reduction - Number of characters to reduce from starting code length
+   */
+  setCodeLengthReduction(reduction: number): void {
+    this._codeLengthReduction = reduction;
+  }
+
   // ==========================================================================
   // Lifecycle Implementation
   // ==========================================================================
@@ -217,7 +230,7 @@ export class CodeBreakerGame extends BaseMinigame {
     // Bypass base class timer by setting _timeLimitMs = 0
     this._timeLimitMs = 0;
 
-    this._currentCodeLength = this.config.startingCodeLength;
+    this._currentCodeLength = Math.max(1, this.config.startingCodeLength - this._codeLengthReduction);
     this._codesCracked = 0;
     this._failReason = null;
     this._totalMoneyEarned = 0;
