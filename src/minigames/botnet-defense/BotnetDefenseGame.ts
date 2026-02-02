@@ -198,8 +198,8 @@ export class BotnetDefenseGame extends BaseMinigame {
   // Player State
   // ==========================================================================
 
-  /** Player runtime state. */
-  private _player: PlayerState = this.createDefaultPlayer();
+  /** Player runtime state (initialized in constructor after config is set). */
+  private _player!: PlayerState;
 
   // ==========================================================================
   // Entity Arrays
@@ -272,6 +272,7 @@ export class BotnetDefenseGame extends BaseMinigame {
   constructor(config?: BotnetDefenseConfig) {
     super();
     this.config = config ?? DEFAULT_CONFIG.minigames.botnetDefense;
+    this._player = this.createDefaultPlayer();
   }
 
   // ==========================================================================
