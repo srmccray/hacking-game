@@ -15,6 +15,14 @@ allowed-tools:
 
 **Purpose:** Converts refined FRDs into structured, actionable task documents with clear dependencies, acceptance criteria, and routing to implementation agents.
 
+## Beads Integration
+
+This agent may receive a **beads feature ID** as context. When provided:
+- Include the beads feature ID in all output metadata
+- **Output a Beads Task Creation Script** — a sequence of `bd create` and `bd dep add` commands the orchestrator can run to create all tasks and dependencies in beads
+- The orchestrator will execute these commands; this agent does NOT run them directly
+- Continue to also produce the `.claude_docs/tasks/` markdown artifacts as a detailed reference
+
 ## When Invoked
 
 - **TRIVIAL tier:** Never (no FRD exists)
@@ -81,6 +89,7 @@ Create task documents following templates below.
 
 **FRD:** `.claude_docs/features/{slug}/frd.md`
 **Refinement:** `.claude_docs/features/{slug}/refinement.md`
+**Beads Feature ID:** {id if provided}
 **Created:** {date}
 **Status:** Not Started | In Progress | Complete
 
@@ -125,6 +134,36 @@ task-01 (Backend Models)
     └──► task-03 (Migrations)
               │
               └──► task-05 (Testing)
+```
+
+---
+
+## Beads Task Creation Script
+
+The orchestrator should run these commands to create beads tasks and dependencies:
+
+```bash
+# Create tasks (orchestrator replaces IDs with actual values returned)
+bd create "{task-01 title}" --type=task --priority=2 --description="{task-01 description}"
+# → TASK_01_ID
+
+bd create "{task-02 title}" --type=task --priority=2 --description="{task-02 description}"
+# → TASK_02_ID
+
+bd create "{task-03 title}" --type=task --priority=2 --description="{task-03 description}"
+# → TASK_03_ID
+
+bd create "{task-04 title}" --type=task --priority=2 --description="{task-04 description}"
+# → TASK_04_ID
+
+# Set dependencies (child depends on parent)
+bd dep add TASK_02_ID TASK_01_ID
+bd dep add TASK_03_ID TASK_01_ID
+bd dep add TASK_04_ID TASK_02_ID
+bd dep add TASK_04_ID TASK_03_ID
+
+# Verify
+bd graph
 ```
 
 ---
@@ -315,12 +354,19 @@ If a task exceeds 5 days estimated:
 
 **Context to provide:**
 - Feature slug: `{slug}`
+- Beads feature ID: {feature-id}
 - Task: `task-{NN}-{name}` (the first unblocked task)
 - Task location: `.claude_docs/tasks/{slug}/task-{NN}-{name}.md`
 - Dependencies: {any prerequisites already complete, or "None - this is the first task"}
 
+**Beads commands (for orchestrator to run first):**
+1. Create all beads tasks using the "Beads Task Creation Script" above
+2. `bd update <first-task-id> --status=in_progress` (claim the first task)
+
 **After that agent completes:**
-The agent will recommend the next task to implement based on the dependency graph.
+- `bd close <task-id> --reason="Summary of what was done"`
+- `bd ready` to find the next unblocked task
+- Invoke the appropriate agent for the next ready task
 ```
 
 ### Selecting the First Agent
@@ -329,20 +375,20 @@ Look at the task breakdown's dependency graph and recommend the agent for the fi
 
 | Task Type | Agent |
 |-----------|-------|
-| FastAPI endpoints, services, models | `backend-implementation` |
-| React components, state, UI | `frontend-implementation` |
+| TypeScript game logic, state, resources | `backend-implementation` |
+| UI, PixiJS, rendering, scenes | `frontend-implementation` |
 | AWS infrastructure, CDK | `infrastructure-implementation` |
-| Database migrations | `database-migrations` |
 | Test coverage | `test-coverage` |
 
-The parent session invokes the recommended agent. When that task completes, the implementation agent will recommend the next task based on what's now unblocked.
+The parent session creates beads tasks, claims the first one, invokes the recommended agent, then closes the beads task when complete. Use `bd ready` to find the next task.
 
 ---
 
 ## Maintenance
 
 As implementation progresses:
-- Update task statuses in `_index.md`
+- **Beads is the source of truth** for task status — use `bd update` and `bd close`
+- Update task statuses in `_index.md` to stay in sync with beads
 - Add progress log entries
 - Note any scope changes or discoveries
-- Update blocked-by relationships if they change
+- Update blocked-by relationships if they change (both in beads with `bd dep add/remove` and in `_index.md`)

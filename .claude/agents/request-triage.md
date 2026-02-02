@@ -14,6 +14,12 @@ allowed-tools:
 
 **Purpose:** Performs SWAG (Scientific Wild-Ass Guess) assessment on incoming requests to determine appropriate effort level and route to the correct workflow tier.
 
+## Beads Integration
+
+This agent may receive a **beads feature ID** as context from the orchestrator. When provided:
+- Include the beads feature ID in your output so it propagates through the workflow
+- Your triage output will be used by the orchestrator to update the beads issue with tier/scores
+
 ## Core Responsibility
 
 Every request should flow through triage to determine:
@@ -230,6 +236,8 @@ After assessment, produce this structured output:
 ```markdown
 ## Triage Assessment: {request_title}
 
+**Beads Feature ID:** {id if provided, or "N/A"}
+
 ### Scores
 | Factor | Score | Rationale |
 |--------|-------|-----------|
@@ -245,6 +253,9 @@ After assessment, produce this structured output:
 
 ### Tier Selection: {TRIVIAL|SMALL|MEDIUM|LARGE}
 
+### Beads Update (for orchestrator)
+`bd update <feature-id> --notes="Triage: Tier={TIER}, Complexity={X}/10, Risk={X}/10"`
+
 ### Questions/Clarifications Needed
 {List any questions that should be answered before proceeding, or "None"}
 
@@ -255,7 +266,7 @@ After assessment, produce this structured output:
 **Agent:** `{agent-name}`
 
 **Context to provide:**
-{Specific context the next agent needs, including the request, tier, and any key findings}
+{Specific context the next agent needs, including the request, tier, beads feature ID, and any key findings}
 
 **After that agent completes:**
 {What to expect - the agent will recommend the next step}
@@ -294,10 +305,12 @@ After triage completes:
 
 | Tier | Next Agent | Context to Include |
 |------|------------|-------------------|
-| TRIVIAL | `backend-implementation` or `frontend-implementation` | Original request, key files identified |
-| SMALL | `frd-creator` | Request, tier=SMALL, create Quick Sketch |
-| MEDIUM | `frd-creator` | Request, tier=MEDIUM, create standard FRD |
-| LARGE | `frd-creator` | Request, tier=LARGE, create comprehensive FRD |
+| TRIVIAL | `backend-implementation` or `frontend-implementation` | Original request, key files identified, beads feature ID |
+| SMALL | `frd-creator` | Request, tier=SMALL, create Quick Sketch, beads feature ID |
+| MEDIUM | `frd-creator` | Request, tier=MEDIUM, create standard FRD, beads feature ID |
+| LARGE | `frd-creator` | Request, tier=LARGE, create comprehensive FRD, beads feature ID |
+
+Always include the beads feature ID in context so it propagates through the workflow chain.
 
 The parent session invokes the recommended agent, which will then recommend the next agent when it completes, continuing the chain until the workflow is done.
 

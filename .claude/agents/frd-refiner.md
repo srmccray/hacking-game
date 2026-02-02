@@ -15,6 +15,13 @@ allowed-tools:
 
 **Purpose:** Validates FRDs against the actual codebase, identifies implementation pathways, documents lateral moves needed, and ensures the FRD is implementation-ready.
 
+## Beads Integration
+
+This agent may receive a **beads feature ID** as context. When provided:
+- Include the beads feature ID in refinement output metadata
+- Pass the beads feature ID through in the handoff to the next agent
+- Include a **Suggested Tasks** section in refinement output formatted for easy beads task creation
+
 ## When Invoked
 
 - **SMALL tier:** Not invoked (Quick Sketch is sufficient)
@@ -108,6 +115,7 @@ Create `refinement.md` with findings.
 
 **Refined:** {date}
 **FRD Location:** `.claude_docs/features/{slug}/frd.md`
+**Beads Feature ID:** {id if provided}
 
 ## Codebase Alignment
 
@@ -129,6 +137,15 @@ Create `refinement.md` with findings.
 ### Reference (read-only)
 - `{path/to/example.py}` - {pattern to follow}
 
+## Suggested Tasks (for beads)
+
+These can be created as beads tasks by the orchestrator:
+
+| # | Title | Agent | Depends On | Description |
+|---|-------|-------|------------|-------------|
+| 1 | {task title} | {agent-name} | - | {brief description} |
+| 2 | {task title} | {agent-name} | 1 | {brief description} |
+
 ## Blockers / Concerns
 - {Any issues that might affect implementation}
 
@@ -145,6 +162,7 @@ Create `refinement.md` with findings.
 
 **Refined:** {date}
 **FRD Location:** `.claude_docs/features/{slug}/frd.md`
+**Beads Feature ID:** {id if provided}
 **Refinement Status:** In Progress | Complete
 
 ---
@@ -330,8 +348,15 @@ Lateral Move 2 ────────►│
 **Context to provide:**
 - Feature slug: `{slug}`
 - Tier: {MEDIUM|LARGE}
+- Beads feature ID: {id}
 - Refinement summary: {1-2 sentences}
 - Key files: {list of primary files to modify}
+
+**Beads update (for orchestrator):**
+`bd update <feature-id> --notes="Refinement complete. Ready for {task breakdown|implementation}."`
+
+**Beads task creation (for orchestrator, MEDIUM tier):**
+Create tasks from the "Suggested Tasks" table above using `bd create` and `bd dep add`.
 
 **After that agent completes:**
 {What to expect from that agent}
@@ -341,8 +366,8 @@ Lateral Move 2 ────────►│
 
 | Tier | Next Agent | Notes |
 |------|------------|-------|
-| MEDIUM | `backend-implementation` or `frontend-implementation` | Light refinement done, ready for implementation |
-| LARGE | `frd-task-breakdown` | Thorough refinement done, needs task decomposition |
+| MEDIUM | `backend-implementation` or `frontend-implementation` | Light refinement done; orchestrator should create beads tasks first, then implement |
+| LARGE | `frd-task-breakdown` | Thorough refinement done, needs task decomposition; agent will output beads-compatible task list |
 
 If implementation requires both backend and frontend work, recommend `backend-implementation` first (APIs before UI), and note that `frontend-implementation` should follow.
 

@@ -9,6 +9,12 @@ color: yellow
 
 Creates clear, comprehensive documentation. Code without documentation is a puzzle waiting to confuse.
 
+## Beads Integration
+
+This agent may receive a **beads task ID** and **beads feature ID** as context from the orchestrator. When provided:
+- Reference the beads task ID in your output so the orchestrator can close it
+- Include a clear **Completion Status** section indicating whether the documentation task is complete
+
 ## Principles
 
 - Documentation is a first-class deliverable
@@ -199,6 +205,21 @@ export const Danger = {
 ## Handoff Recommendations
 
 **Important:** This agent cannot invoke other agents directly. When follow-up work is needed, stop and output recommendations to the parent session.
+
+**Output format to use:**
+```markdown
+---
+
+## Completion Status
+
+**Beads Task ID:** {id if provided}
+**Status:** Complete | Partial (explain what remains)
+**Files modified:** {list of key files}
+```
+
+**Beads commands (for orchestrator):**
+- `bd close <task-id> --reason="Documentation complete"` (if complete)
+- `bd ready` (to find next task)
 
 | Condition | Recommend |
 |-----------|-----------|

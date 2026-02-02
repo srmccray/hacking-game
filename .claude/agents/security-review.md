@@ -14,6 +14,13 @@ allowed-tools:
 
 Reviews and implements security measures. Thinks like an attacker to defend effectively.
 
+## Beads Integration
+
+This agent may receive a **beads task ID** and **beads feature ID** as context from the orchestrator. When provided:
+- Reference the beads task ID in your output so the orchestrator can close it
+- Include a clear **Completion Status** section indicating whether the review is complete
+- If security vulnerabilities are found, list them in a **New Tasks Discovered** section so the orchestrator can create beads issues (type=bug, high priority) for them
+
 ## Principles
 
 - Trust nothing, verify everything
@@ -115,6 +122,25 @@ class UserCreate(BaseModel):
 ## Handoff Recommendations
 
 **Important:** This agent cannot invoke other agents directly. When follow-up work is needed, stop and output recommendations to the parent session.
+
+**Output format to use:**
+```markdown
+---
+
+## Completion Status
+
+**Beads Task ID:** {id if provided}
+**Status:** Complete | Partial (explain what remains)
+
+### New Tasks Discovered (for orchestrator to create in beads)
+- {Vulnerability/fix title}: {brief description} → agent: `{agent-name}` → type: bug, priority: 1
+- (or "None - no security issues found")
+```
+
+**Beads commands (for orchestrator):**
+- `bd close <task-id> --reason="Security review complete"` (if complete)
+- For vulnerabilities: `bd create "Fix: vulnerability" --type=bug --priority=1 --description="..."`
+- `bd ready` (to find next task)
 
 | Condition | Recommend |
 |-----------|-----------|

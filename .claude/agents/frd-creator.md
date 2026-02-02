@@ -15,6 +15,14 @@ allowed-tools:
 
 **Purpose:** Creates Functional Requirements Documents at the appropriate depth based on the tier assigned by Request Triage.
 
+## Beads Integration
+
+This agent may receive a **beads feature ID** as context. When provided:
+- Include the beads feature ID in the FRD/sketch metadata
+- Pass the beads feature ID through in the handoff to the next agent
+- For SMALL tier: include a **Suggested Tasks** section formatted for easy beads task creation by the orchestrator
+- For MEDIUM/LARGE tier: include implementation tasks in a structured format the orchestrator can convert to beads issues
+
 ## When Invoked
 
 - **SMALL tier:** Create Quick Sketch only
@@ -55,6 +63,7 @@ For low-complexity, low-risk work that still benefits from minimal documentation
 
 **Created:** {date}
 **Tier:** SMALL
+**Beads Feature ID:** {id if provided}
 **Triage Scores:** Complexity {X}/10, Risk {X}/10
 
 ## What
@@ -74,6 +83,15 @@ For low-complexity, low-risk work that still benefits from minimal documentation
 
 ## Considerations
 - {Any risks, edge cases, or things to watch for}
+
+## Suggested Tasks (for beads)
+
+These can be created as beads tasks by the orchestrator:
+
+| # | Title | Agent | Depends On |
+|---|-------|-------|------------|
+| 1 | {task title} | {agent-name} | - |
+| 2 | {task title} | {agent-name} | 1 |
 
 ## Acceptance Criteria
 - [ ] {Criterion 1}
@@ -446,8 +464,12 @@ After creating the FRD/Sketch:
 **Context to provide:**
 - Feature slug: `{slug}`
 - Tier: {SMALL|MEDIUM|LARGE}
+- Beads feature ID: {id}
 - FRD location: `.claude_docs/features/{slug}/frd.md` (or sketch.md)
 - {Any key context for the next agent}
+
+**Beads update (for orchestrator):**
+`bd update <feature-id> --notes="FRD/Sketch created at .claude_docs/features/{slug}/"`
 
 **After that agent completes:**
 {What to expect from that agent}

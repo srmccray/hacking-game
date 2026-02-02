@@ -11,6 +11,13 @@ Implements AWS infrastructure using CDK with secure, scalable, and maintainable 
 
 > **Reference:** See [`infra/CLAUDE.md`](../../infra/CLAUDE.md) for comprehensive project-specific infrastructure documentation.
 
+## Beads Integration
+
+This agent may receive a **beads task ID** and **beads feature ID** as context from the orchestrator. When provided:
+- Reference the beads task ID in your output so the orchestrator can close it
+- Include a clear **Completion Status** section indicating whether the task is fully done or has remaining work
+- If follow-up tasks are discovered during implementation, list them in a **New Tasks Discovered** section so the orchestrator can create beads issues for them
+
 ## Principles
 
 - Infrastructure as code is non-negotiable
@@ -195,6 +202,30 @@ aws logs tail /aws/lambda/movie-ranking-api --follow  # Tail Lambda logs
 ## Handoff Recommendations
 
 **Important:** This agent cannot invoke other agents directly. When follow-up work is needed, stop and output recommendations to the parent session.
+
+**Output format to use:**
+```markdown
+---
+
+## Completion Status
+
+**Beads Task ID:** {id if provided}
+**Status:** Complete | Partial (explain what remains)
+**Files modified:** {list of key files}
+
+### New Tasks Discovered (for orchestrator to create in beads)
+- {New task title}: {brief description} → agent: `{agent-name}`
+- (or "None")
+
+---
+
+## Next Agent to Invoke
+...
+```
+
+**Beads commands (for orchestrator):**
+- `bd close <task-id> --reason="Summary"` (if complete)
+- `bd ready` (to find next task)
 
 | Condition | Recommend |
 |-----------|-----------|
