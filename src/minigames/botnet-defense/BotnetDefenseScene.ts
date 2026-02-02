@@ -90,6 +90,27 @@ const XP_GEM_COLOR = 0x00ffff;
 /** Player color */
 const PLAYER_COLOR = 0x44ff44;
 
+/** Player damage flash color */
+const PLAYER_DAMAGE_FLASH_COLOR = 0xff4444;
+
+/** Duration of death effect in ms */
+const DEATH_EFFECT_DURATION_MS = 300;
+
+/** Duration of player damage flash in ms */
+const DAMAGE_FLASH_DURATION_MS = 200;
+
+/** Duration of level-up screen flash in ms */
+const LEVEL_UP_FLASH_DURATION_MS = 200;
+
+/** Number of particles in a death burst */
+const DEATH_PARTICLE_COUNT = 4;
+
+/** Death particle max spread speed in pixels per second */
+const DEATH_PARTICLE_SPEED = 120;
+
+/** XP gem attraction line alpha */
+const GEM_LINE_ALPHA = 0.15;
+
 /** HP bar heart color */
 const HP_FULL_COLOR = 0xff4444;
 const HP_EMPTY_COLOR = 0x442222;
@@ -173,6 +194,28 @@ class BotnetDefenseScene implements Scene {
   /** Offset for positioning the game area within the scene */
   private gameAreaOffsetX: number = 0;
   private gameAreaOffsetY: number = 0;
+
+  // --------------------------------------------------------------------------
+  // Visual Effect State
+  // --------------------------------------------------------------------------
+
+  /** Active death effect animations */
+  private deathEffects: { container: Container; startTime: number; particles: { g: Graphics; vx: number; vy: number }[] }[] = [];
+
+  /** Timestamp when the current game session started (for death effect timing) */
+  private elapsedMs: number = 0;
+
+  /** Remaining time for the player damage flash effect */
+  private damageFlashRemaining: number = 0;
+
+  /** Shared Graphics object for drawing XP gem attraction lines */
+  private gemLineGraphics: Graphics | null = null;
+
+  /** Remaining time for the level-up screen flash effect */
+  private levelUpFlashRemaining: number = 0;
+
+  /** Graphics overlay for the level-up screen flash */
+  private levelUpFlashGraphic: Graphics | null = null;
 
   constructor(game: Game) {
     this.game = game;
@@ -268,14 +311,41 @@ class BotnetDefenseScene implements Scene {
     // Poll held keys for continuous movement input
     this.pollMovementInput();
 
+    // Snapshot HP before game update so we can detect damage
+    const hpBefore = this.minigame.getState().player.hp;
+
     // Update minigame logic
     this.minigame.update(deltaMs);
+
+    // Update elapsed time for death effects
+    this.elapsedMs += deltaMs;
 
     // Update i-frame blink timer
     this.iframeBlinkTimer += deltaMs;
 
+    // Detect player damage (HP decreased this frame)
+    const hpAfter = this.minigame.getState().player.hp;
+    if (hpAfter < hpBefore) {
+      this.damageFlashRemaining = DAMAGE_FLASH_DURATION_MS;
+    }
+
+    // Tick damage flash timer
+    if (this.damageFlashRemaining > 0) {
+      this.damageFlashRemaining = Math.max(0, this.damageFlashRemaining - deltaMs);
+    }
+
+    // Tick level-up screen flash
+    if (this.levelUpFlashRemaining > 0) {
+      this.levelUpFlashRemaining = Math.max(0, this.levelUpFlashRemaining - deltaMs);
+      this.updateLevelUpFlash();
+    }
+
     // Update display
     this.updateDisplay();
+
+    // Update visual effects (death animations, gem lines)
+    this.updateDeathEffects(deltaMs);
+    this.updateGemAttractionLines();
   }
 
   onDestroy(): void {
@@ -297,7 +367,15 @@ class BotnetDefenseScene implements Scene {
     this.projectileGraphicsById.clear();
     this.xpGemGraphicsById.clear();
 
+    // Clear death effects
+    for (const effect of this.deathEffects) {
+      effect.container.destroy({ children: true });
+    }
+    this.deathEffects = [];
+
     // Clear UI references
+    this.gemLineGraphics = null;
+    this.levelUpFlashGraphic = null;
     this.playerGraphic = null;
     this.gameArea = null;
     this.hpGraphics = null;
@@ -521,6 +599,10 @@ class BotnetDefenseScene implements Scene {
     this.container.addChild(maskGraphic);
     this.gameArea.mask = maskGraphic;
 
+    // Create shared graphics for XP gem attraction lines (below player)
+    this.gemLineGraphics = new Graphics();
+    this.gameArea.addChild(this.gemLineGraphics);
+
     // Create player graphic
     this.playerGraphic = new Graphics();
     this.drawPlayerTriangle(1, 0); // Default facing right
@@ -566,8 +648,9 @@ class BotnetDefenseScene implements Scene {
     this.playerGraphic.lineTo(baseX2, baseY2);
     this.playerGraphic.closePath();
 
-    this.playerGraphic.fill({ color: PLAYER_COLOR, alpha: 0.7 });
-    this.playerGraphic.stroke({ color: COLORS.TERMINAL_BRIGHT, width: 2 });
+    const playerColor = this.damageFlashRemaining > 0 ? PLAYER_DAMAGE_FLASH_COLOR : PLAYER_COLOR;
+    this.playerGraphic.fill({ color: playerColor, alpha: 0.7 });
+    this.playerGraphic.stroke({ color: this.damageFlashRemaining > 0 ? 0xff8888 : COLORS.TERMINAL_BRIGHT, width: 2 });
   }
 
   /**
@@ -689,9 +772,11 @@ class BotnetDefenseScene implements Scene {
     // Build set of current enemy IDs
     const currentIds = new Set(enemies.map((e) => e.id));
 
-    // Remove Graphics for enemies that no longer exist
+    // Remove Graphics for enemies that no longer exist - spawn death effects
     for (const [id, graphic] of this.enemyGraphicsById) {
       if (!currentIds.has(id)) {
+        // Spawn death effect at the enemy's last position
+        this.spawnDeathEffect(graphic.x, graphic.y);
         this.gameArea.removeChild(graphic);
         graphic.destroy();
         this.enemyGraphicsById.delete(id);
@@ -870,6 +955,144 @@ class BotnetDefenseScene implements Scene {
     if (this.xpLevelText) {
       this.xpLevelText.text = `LVL ${state.level}`;
     }
+  }
+
+  // ==========================================================================
+  // Visual Effects
+  // ==========================================================================
+
+  /**
+   * Spawn a death effect at the given position within the game area.
+   * Creates a container with a white flash circle and scattered particle rectangles.
+   */
+  private spawnDeathEffect(x: number, y: number): void {
+    if (!this.gameArea) {
+      return;
+    }
+
+    const effectContainer = new Container();
+    effectContainer.x = x;
+    effectContainer.y = y;
+
+    // White flash circle (will fade out)
+    const flash = new Graphics();
+    flash.circle(0, 0, 12);
+    flash.fill({ color: 0xffffff, alpha: 0.8 });
+    effectContainer.addChild(flash);
+
+    // Scatter particles
+    const particles: { g: Graphics; vx: number; vy: number }[] = [];
+    for (let i = 0; i < DEATH_PARTICLE_COUNT; i++) {
+      const angle = (Math.PI * 2 * i) / DEATH_PARTICLE_COUNT + Math.random() * 0.5;
+      const speed = DEATH_PARTICLE_SPEED * (0.5 + Math.random() * 0.5);
+      const particle = new Graphics();
+      particle.rect(-2, -2, 4, 4);
+      particle.fill({ color: 0xffffff });
+      effectContainer.addChild(particle);
+      particles.push({
+        g: particle,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+      });
+    }
+
+    this.gameArea.addChild(effectContainer);
+    this.deathEffects.push({
+      container: effectContainer,
+      startTime: this.elapsedMs,
+      particles,
+    });
+  }
+
+  /**
+   * Tick all active death effects, animating particles outward and fading.
+   * Removes expired effects after DEATH_EFFECT_DURATION_MS.
+   */
+  private updateDeathEffects(deltaMs: number): void {
+    const deltaSec = deltaMs / 1000;
+
+    for (let i = this.deathEffects.length - 1; i >= 0; i--) {
+      const effect = this.deathEffects[i]!;
+      const age = this.elapsedMs - effect.startTime;
+      const progress = Math.min(1, age / DEATH_EFFECT_DURATION_MS);
+
+      // Fade the entire container
+      effect.container.alpha = 1 - progress;
+
+      // Move particles outward
+      for (const p of effect.particles) {
+        p.g.x += p.vx * deltaSec;
+        p.g.y += p.vy * deltaSec;
+      }
+
+      // Remove expired effects
+      if (age >= DEATH_EFFECT_DURATION_MS) {
+        if (this.gameArea) {
+          this.gameArea.removeChild(effect.container);
+        }
+        effect.container.destroy({ children: true });
+        this.deathEffects.splice(i, 1);
+      }
+    }
+  }
+
+  /**
+   * Draw faint green lines from XP gems within pickup radius to the player.
+   * Uses a shared Graphics object, cleared and redrawn each frame.
+   */
+  private updateGemAttractionLines(): void {
+    if (!this.gemLineGraphics || !this.minigame) {
+      return;
+    }
+
+    this.gemLineGraphics.clear();
+
+    const state = this.minigame.getState();
+    const player = state.player;
+    const pickupRadius = player.pickupRadius;
+
+    for (const gem of state.xpGems) {
+      const dx = gem.x - player.x;
+      const dy = gem.y - player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < pickupRadius && dist > 10) {
+        this.gemLineGraphics.moveTo(gem.x, gem.y);
+        this.gemLineGraphics.lineTo(player.x, player.y);
+        this.gemLineGraphics.stroke({ color: COLORS.TERMINAL_GREEN, width: 1, alpha: GEM_LINE_ALPHA });
+      }
+    }
+  }
+
+  /**
+   * Update the level-up screen flash overlay. Creates the overlay on first call,
+   * then fades it from alpha 0.3 to 0. Removes the overlay when finished.
+   */
+  private updateLevelUpFlash(): void {
+    if (this.levelUpFlashRemaining <= 0) {
+      // Remove the flash graphic if it exists
+      if (this.levelUpFlashGraphic) {
+        this.container.removeChild(this.levelUpFlashGraphic);
+        this.levelUpFlashGraphic.destroy();
+        this.levelUpFlashGraphic = null;
+      }
+      return;
+    }
+
+    const canvasWidth = (this.game.config as { canvas: { width: number; height: number } }).canvas.width;
+    const canvasHeight = (this.game.config as { canvas: { width: number; height: number } }).canvas.height;
+
+    // Create the flash overlay if it doesn't exist
+    if (!this.levelUpFlashGraphic) {
+      this.levelUpFlashGraphic = new Graphics();
+      this.levelUpFlashGraphic.rect(0, 0, canvasWidth, canvasHeight);
+      this.levelUpFlashGraphic.fill({ color: 0xffffff });
+      this.container.addChild(this.levelUpFlashGraphic);
+    }
+
+    // Fade from 0.3 to 0 over the duration
+    const progress = 1 - this.levelUpFlashRemaining / LEVEL_UP_FLASH_DURATION_MS;
+    this.levelUpFlashGraphic.alpha = 0.3 * (1 - progress);
   }
 
   // ==========================================================================
@@ -1054,6 +1277,9 @@ class BotnetDefenseScene implements Scene {
     this.showingLevelUp = true;
     this.levelUpSelectedIndex = 0;
     this.cardBorders = [];
+
+    // Trigger screen flash effect
+    this.levelUpFlashRemaining = LEVEL_UP_FLASH_DURATION_MS;
 
     const canvasWidth = (this.game.config as { canvas: { width: number; height: number } }).canvas.width;
     const canvasHeight = (this.game.config as { canvas: { width: number; height: number } }).canvas.height;
