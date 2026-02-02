@@ -37,10 +37,19 @@ import type {
   Projectile,
   PlayerState,
   WeaponState,
+  WeaponType,
   BotnetDefenseState,
   XPGem,
   UpgradeChoice,
 } from './types';
+import {
+  ENEMY_DEFINITIONS,
+  getSpawnBracket,
+  pickRandomEnemyType,
+  rollEnemyHp,
+  rollGroupSize,
+} from './enemies';
+import type { SpawnBracket } from './enemies';
 
 // ============================================================================
 // Constants
@@ -49,11 +58,27 @@ import type {
 /** Player collision radius in pixels. */
 const PLAYER_RADIUS = 12;
 
-/** Default enemy collision radius in pixels. */
-const ENEMY_RADIUS = 10;
 
 /** Projectile collision radius in pixels. */
 const PROJECTILE_RADIUS = 4;
+
+/** XP gem collision radius in pixels. */
+const XP_GEM_RADIUS = 6;
+
+/** Maximum number of active XP gems in the arena. */
+const XP_GEM_CAP = 30;
+
+/** Distance in pixels at which an XP gem is collected (not just attracted). */
+const XP_GEM_COLLECT_RADIUS = 10;
+
+/** Base magnetic pull speed for XP gems in pixels per second. */
+const XP_GEM_PULL_SPEED = 300;
+
+/** Maximum weapon level. */
+const MAX_WEAPON_LEVEL = 5;
+
+/** All available weapon types. */
+const ALL_WEAPON_TYPES: readonly WeaponType[] = ['ping', 'firewall', 'port-scanner', 'exploit'] as const;
 
 /** Ping weapon projectile speed in pixels per second. */
 const PING_PROJECTILE_SPEED = 400;
@@ -70,18 +95,8 @@ const PING_DAMAGE = 1;
 /** Ping weapon projectile count (level 1). */
 const PING_PROJECTILE_COUNT = 1;
 
-/** Virus enemy base speed in pixels per second. */
-const VIRUS_SPEED = 60;
-
-/** Virus enemy HP range. */
-const VIRUS_MIN_HP = 1;
-const VIRUS_MAX_HP = 2;
-
-/** Virus enemy XP drop value. */
-const VIRUS_XP_VALUE = 1;
-
-/** Virus spawn interval in milliseconds. */
-const VIRUS_SPAWN_INTERVAL_MS = 2000;
+/** Default enemy collision radius (used for edge spawn margin calculation). */
+const DEFAULT_ENEMY_RADIUS = 10;
 
 // ============================================================================
 // Input Types
@@ -276,6 +291,9 @@ export class BotnetDefenseGame extends BaseMinigame {
     // Check enemy-player collisions
     this.checkEnemyPlayerCollisions();
 
+    // Update XP gems (magnetic pull and collection)
+    this.updateXPGems(deltaSec);
+
     // Remove inactive entities
     this.cleanupEntities();
 
@@ -379,6 +397,8 @@ export class BotnetDefenseGame extends BaseMinigame {
       hp: this.config.playerMaxHP,
       maxHp: this.config.playerMaxHP,
       speed: this.config.playerSpeed,
+      pickupRadius: this.config.pickupRadius,
+      damageMult: 1.0,
       iFramesRemaining: 0,
       facingX: 1,  // Default facing right
       facingY: 0,
@@ -563,48 +583,71 @@ export class BotnetDefenseGame extends BaseMinigame {
   // ==========================================================================
 
   /**
-   * Update the enemy spawner, spawning Virus enemies on a timer.
+   * Update the enemy spawner using the time-based spawn schedule.
+   *
+   * Determines the current spawn bracket from elapsed time, then spawns
+   * enemies at the bracket's interval. The bracket controls which enemy
+   * types are available, spawn rate, and HP scaling.
    */
   private updateSpawner(deltaMs: number): void {
+    const bracket = getSpawnBracket(this._playTimeMs);
     this._spawnTimer += deltaMs;
 
-    if (this._spawnTimer >= VIRUS_SPAWN_INTERVAL_MS) {
-      this._spawnTimer -= VIRUS_SPAWN_INTERVAL_MS;
-      this.spawnVirus();
+    if (this._spawnTimer >= bracket.spawnIntervalMs) {
+      this._spawnTimer -= bracket.spawnIntervalMs;
+      const enemyType = pickRandomEnemyType(bracket);
+      this.spawnEnemy(enemyType, bracket);
     }
   }
 
   /**
-   * Spawn a Virus enemy at a random point along the arena edge.
+   * Spawn an enemy (or group of enemies) of the given type at the arena edge.
+   *
+   * For enemy types with groupSize > 1 (e.g., Worm), multiple enemies are
+   * spawned at nearby positions around the same edge point.
+   *
+   * @param type - The enemy type to spawn
+   * @param bracket - The current spawn bracket (for HP scaling)
    */
-  private spawnVirus(): void {
-    const { x, y } = this.getRandomEdgePosition();
-    const hp = VIRUS_MIN_HP + Math.floor(Math.random() * (VIRUS_MAX_HP - VIRUS_MIN_HP + 1));
+  private spawnEnemy(type: EnemyType, bracket: SpawnBracket): void {
+    const def = ENEMY_DEFINITIONS[type];
+    const { x: baseX, y: baseY } = this.getRandomEdgePosition(def.radius);
+    const count = rollGroupSize(def);
 
-    const enemy: Enemy = {
-      id: this._nextEntityId++,
-      x,
-      y,
-      radius: ENEMY_RADIUS,
-      active: true,
-      type: 'virus' as EnemyType,
-      hp,
-      maxHp: hp,
-      speed: VIRUS_SPEED,
-      xpValue: VIRUS_XP_VALUE,
-      hitCooldown: 0,
-    };
+    for (let i = 0; i < count; i++) {
+      // Apply positional offset for group members (first member spawns at base)
+      const offsetX = i === 0 ? 0 : (Math.random() * 2 - 1) * def.groupOffset;
+      const offsetY = i === 0 ? 0 : (Math.random() * 2 - 1) * def.groupOffset;
 
-    this._enemies.push(enemy);
+      const hp = rollEnemyHp(def, bracket.hpMultiplier);
+
+      const enemy: Enemy = {
+        id: this._nextEntityId++,
+        x: baseX + offsetX,
+        y: baseY + offsetY,
+        radius: def.radius,
+        active: true,
+        type,
+        hp,
+        maxHp: hp,
+        speed: def.speed,
+        xpValue: def.xpValue,
+        hitCooldown: 0,
+      };
+
+      this._enemies.push(enemy);
+    }
   }
 
   /**
    * Get a random position along the arena edges (outside bounds by one radius).
+   *
+   * @param radius - The enemy radius, used to calculate spawn margin
    */
-  private getRandomEdgePosition(): { x: number; y: number } {
+  private getRandomEdgePosition(radius: number = DEFAULT_ENEMY_RADIUS): { x: number; y: number } {
     // Pick a random edge: 0=top, 1=right, 2=bottom, 3=left
     const edge = Math.floor(Math.random() * 4);
-    const margin = ENEMY_RADIUS + 5; // Spawn slightly outside
+    const margin = radius + 5; // Spawn slightly outside
 
     switch (edge) {
       case 0: // Top
@@ -666,6 +709,9 @@ export class BotnetDefenseGame extends BaseMinigame {
             this._kills++;
             this._successCount++;
 
+            // Spawn XP gem at enemy position (capped)
+            this.spawnXPGem(enemy.x, enemy.y, enemy.xpValue);
+
             // Emit enemy-killed event
             this.emit('enemy-killed' as MinigameEventType, {
               minigameId: this.id,
@@ -725,6 +771,278 @@ export class BotnetDefenseGame extends BaseMinigame {
         // Only take one hit per frame
         break;
       }
+    }
+  }
+
+  // ==========================================================================
+  // Private Methods - XP Gems
+  // ==========================================================================
+
+  /**
+   * Spawn an XP gem at the given position if below the gem cap.
+   *
+   * @param x - X position of the gem
+   * @param y - Y position of the gem
+   * @param value - XP value of the gem
+   */
+  private spawnXPGem(x: number, y: number, value: number): void {
+    const activeGems = this._xpGems.filter((g) => g.active).length;
+    if (activeGems >= XP_GEM_CAP) {
+      return;
+    }
+
+    const gem: XPGem = {
+      id: this._nextEntityId++,
+      x,
+      y,
+      radius: XP_GEM_RADIUS,
+      active: true,
+      value,
+    };
+    this._xpGems.push(gem);
+  }
+
+  /**
+   * Update XP gems: apply magnetic pull toward player and collect when close.
+   * Gems within pickupRadius are lerped toward the player. Gems within
+   * XP_GEM_COLLECT_RADIUS are collected, adding their value to currentXP.
+   */
+  private updateXPGems(deltaSec: number): void {
+    for (const gem of this._xpGems) {
+      if (!gem.active) continue;
+
+      const dx = this._player.x - gem.x;
+      const dy = this._player.y - gem.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Check collection (innermost radius)
+      if (dist < XP_GEM_COLLECT_RADIUS) {
+        gem.active = false;
+        this.collectXP(gem.value);
+        continue;
+      }
+
+      // Magnetic pull within pickup radius
+      if (dist < this._player.pickupRadius) {
+        // Speed is inversely proportional to distance: closer = faster
+        const pullStrength = XP_GEM_PULL_SPEED * (1 - dist / this._player.pickupRadius);
+        const moveAmount = pullStrength * deltaSec;
+
+        // Normalize direction and move gem toward player
+        const normDx = dx / dist;
+        const normDy = dy / dist;
+        gem.x += normDx * moveAmount;
+        gem.y += normDy * moveAmount;
+      }
+    }
+  }
+
+  /**
+   * Add XP and check for level-up. Handles excess XP carry-over.
+   *
+   * @param amount - Amount of XP to add
+   */
+  private collectXP(amount: number): void {
+    this._currentXP += amount;
+
+    // Check for level-up
+    if (this._currentXP >= this._xpToNextLevel) {
+      this._currentXP -= this._xpToNextLevel;
+      this._level++;
+      this._xpToNextLevel = Math.floor(
+        this.config.baseXPToLevel * Math.pow(this.config.xpLevelScaling, this._level)
+      );
+
+      // Pause game and show level-up overlay
+      this.pause();
+      this._isLevelingUp = true;
+      this._upgradeChoices = this.generateUpgradeChoices();
+    }
+  }
+
+  // ==========================================================================
+  // Private Methods - Upgrade System
+  // ==========================================================================
+
+  /**
+   * Generate upgrade choices for the level-up overlay.
+   * Returns upgradeChoiceCount (default 3) choices from: new-weapon, upgrade-weapon, stat-boost.
+   * Invalid choices are filtered out; shortfalls are filled with stat boosts.
+   */
+  private generateUpgradeChoices(): UpgradeChoice[] {
+    const choiceCount = this.config.upgradeChoiceCount;
+    const candidates: UpgradeChoice[] = [];
+
+    // Gather all valid new-weapon choices
+    const ownedWeaponTypes = new Set(this._weapons.map((w) => w.type));
+    for (const wt of ALL_WEAPON_TYPES) {
+      if (!ownedWeaponTypes.has(wt)) {
+        candidates.push({
+          type: 'new-weapon',
+          weaponType: wt,
+          label: `New: ${this.formatWeaponName(wt)}`,
+          description: `Unlock the ${this.formatWeaponName(wt)} weapon.`,
+        });
+      }
+    }
+
+    // Gather all valid upgrade-weapon choices
+    for (const weapon of this._weapons) {
+      if (weapon.level < MAX_WEAPON_LEVEL) {
+        candidates.push({
+          type: 'upgrade-weapon',
+          weaponType: weapon.type,
+          label: `${this.formatWeaponName(weapon.type)} Lv.${weapon.level + 1}`,
+          description: `Upgrade ${this.formatWeaponName(weapon.type)} to level ${weapon.level + 1}.`,
+        });
+      }
+    }
+
+    // Gather stat-boost choices
+    const statBoosts = this.getStatBoostChoices();
+    candidates.push(...statBoosts);
+
+    // Shuffle candidates
+    this.shuffleArray(candidates);
+
+    // Pick up to choiceCount
+    const choices: UpgradeChoice[] = [];
+    for (const candidate of candidates) {
+      if (choices.length >= choiceCount) break;
+      choices.push(candidate);
+    }
+
+    // Fill remaining slots with stat boosts if not enough candidates
+    while (choices.length < choiceCount) {
+      const available = statBoosts.filter(
+        (sb) => !choices.some((c) => c.statType === sb.statType)
+      );
+      if (available.length > 0) {
+        const pick = available[Math.floor(Math.random() * available.length)]!;
+        choices.push(pick);
+      } else {
+        // Fallback: duplicate a random stat boost
+        const pick = statBoosts[Math.floor(Math.random() * statBoosts.length)]!;
+        choices.push(pick);
+      }
+    }
+
+    return choices;
+  }
+
+  /**
+   * Get all available stat-boost upgrade choices.
+   */
+  private getStatBoostChoices(): UpgradeChoice[] {
+    return [
+      {
+        type: 'stat-boost',
+        statType: 'speed',
+        label: '+15% Speed',
+        description: 'Increase movement speed by 15%.',
+      },
+      {
+        type: 'stat-boost',
+        statType: 'maxHP',
+        label: '+1 Max HP',
+        description: 'Increase max HP by 1 and heal 1 HP.',
+      },
+      {
+        type: 'stat-boost',
+        statType: 'pickupRadius',
+        label: '+20px Pickup',
+        description: 'Increase XP gem pickup radius by 20 pixels.',
+      },
+      {
+        type: 'stat-boost',
+        statType: 'damageMult',
+        label: '+20% Damage',
+        description: 'Increase all weapon damage by 20%.',
+      },
+    ];
+  }
+
+  /**
+   * Apply the selected upgrade choice and resume gameplay.
+   *
+   * @param choiceIndex - Index into the current upgradeChoices array (0-based)
+   */
+  applyUpgrade(choiceIndex: number): void {
+    if (!this._isLevelingUp) return;
+    if (choiceIndex < 0 || choiceIndex >= this._upgradeChoices.length) return;
+
+    const choice = this._upgradeChoices[choiceIndex]!;
+
+    switch (choice.type) {
+      case 'new-weapon': {
+        if (choice.weaponType) {
+          this._weapons.push({
+            type: choice.weaponType,
+            level: 1,
+            cooldownRemaining: 0,
+          });
+        }
+        break;
+      }
+      case 'upgrade-weapon': {
+        if (choice.weaponType) {
+          const weapon = this._weapons.find((w) => w.type === choice.weaponType);
+          if (weapon && weapon.level < MAX_WEAPON_LEVEL) {
+            weapon.level++;
+          }
+        }
+        break;
+      }
+      case 'stat-boost': {
+        switch (choice.statType) {
+          case 'speed':
+            this._player.speed *= 1.15;
+            break;
+          case 'maxHP':
+            this._player.maxHp += 1;
+            this._player.hp = Math.min(this._player.hp + 1, this._player.maxHp);
+            break;
+          case 'pickupRadius':
+            this._player.pickupRadius += 20;
+            break;
+          case 'damageMult':
+            this._player.damageMult *= 1.20;
+            break;
+        }
+        break;
+      }
+    }
+
+    // Clear level-up state and resume
+    this._isLevelingUp = false;
+    this._upgradeChoices = [];
+    this.resume();
+  }
+
+  // ==========================================================================
+  // Private Methods - Utility
+  // ==========================================================================
+
+  /**
+   * Format a weapon type enum into a display name.
+   * e.g., 'port-scanner' -> 'Port Scanner'
+   */
+  private formatWeaponName(type: WeaponType): string {
+    return type
+      .split('-')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  /**
+   * Fisher-Yates shuffle (in-place).
+   */
+  private shuffleArray<T>(arr: T[]): void {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const temp = arr[i]!;
+      arr[i] = arr[j]!;
+      arr[j] = temp;
     }
   }
 

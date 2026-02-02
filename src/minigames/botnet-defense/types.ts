@@ -66,6 +66,10 @@ export interface PlayerState {
   hp: number;
   maxHp: number;
   speed: number;
+  /** Radius in pixels for magnetic XP gem pickup */
+  pickupRadius: number;
+  /** Global damage multiplier applied to all weapons */
+  damageMult: number;
   /** Remaining invincibility time in milliseconds */
   iFramesRemaining: number;
   /** Horizontal facing direction (-1 left, 0 neutral, 1 right) */
