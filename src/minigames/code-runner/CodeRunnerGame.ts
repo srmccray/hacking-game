@@ -39,6 +39,13 @@ import type { CodeRunnerConfig } from '../../game/GameConfig';
 import { DEFAULT_CONFIG } from '../../game/GameConfig';
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/** Wall-count milestones that trigger a reputation reward overlay. */
+const WALL_MILESTONE_THRESHOLDS: readonly number[] = [15, 30, 45] as const;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -170,6 +177,9 @@ export class CodeRunnerGame extends BaseMinigame {
   /** Bonus move speed from upgrades (in pixels/sec) */
   private readonly _moveSpeedBonus: number;
 
+  /** Wall milestones triggered this session (to avoid re-triggering). */
+  private _triggeredMilestones: Set<number> = new Set();
+
   // ==========================================================================
   // Constructor
   // ==========================================================================
@@ -262,6 +272,7 @@ export class CodeRunnerGame extends BaseMinigame {
     this._spawnRatePenalty = 0;
     this._gapWidthPenalty = 0;
     this._playerSpeedPenalty = 0;
+    this._triggeredMilestones = new Set();
   }
 
   protected onEnd(): void {
@@ -404,6 +415,9 @@ export class CodeRunnerGame extends BaseMinigame {
             difficultyType,
           },
         });
+
+        // Check wall-count milestones after incrementing wallsPassed
+        this.checkWallMilestones();
       }
     }
 
@@ -495,6 +509,32 @@ export class CodeRunnerGame extends BaseMinigame {
     }
 
     return chosen;
+  }
+
+  // ==========================================================================
+  // Private Methods - Wall Milestones
+  // ==========================================================================
+
+  /**
+   * Check if any wall-count milestone thresholds have been crossed.
+   * Emits a 'milestone-reached' event for each newly crossed threshold
+   * that hasn't been triggered in this session. Pauses the game on trigger.
+   */
+  private checkWallMilestones(): void {
+    for (const threshold of WALL_MILESTONE_THRESHOLDS) {
+      if (this._wallsPassed >= threshold && !this._triggeredMilestones.has(threshold)) {
+        this._triggeredMilestones.add(threshold);
+        this.pause();
+        this.emit('milestone-reached' as MinigameEventType, {
+          minigameId: this.id,
+          data: {
+            thresholdValue: threshold,
+          },
+        });
+        // Only trigger one milestone per frame
+        return;
+      }
+    }
   }
 
   // ==========================================================================
@@ -595,6 +635,7 @@ export class CodeRunnerGame extends BaseMinigame {
     this._spawnRatePenalty = 0;
     this._gapWidthPenalty = 0;
     this._playerSpeedPenalty = 0;
+    this._triggeredMilestones = new Set();
   }
 
   // ==========================================================================

@@ -978,7 +978,7 @@ export class InGameMenu {
       }
     } else if (this.menuState === 'confirm-reset') {
       if (this.confirmSelectedIndex === 0) {
-        this.confirmReset();
+        void this.confirmReset();
       } else {
         this.cancelResetConfirm();
       }
@@ -1009,7 +1009,7 @@ export class InGameMenu {
     if (this.menuState === 'confirm-exit') {
       void this.confirmExit();
     } else if (this.menuState === 'confirm-reset') {
-      this.confirmReset();
+      void this.confirmReset();
     }
   }
 
@@ -1213,7 +1213,7 @@ export class InGameMenu {
     yesText.y = boxY + boxHeight - 60;
     yesText.eventMode = 'static';
     yesText.cursor = 'pointer';
-    yesText.on('pointerdown', () => this.confirmReset());
+    yesText.on('pointerdown', () => void this.confirmReset());
     yesText.on('pointerover', () => {
       this.confirmSelectedIndex = 0;
       this.updateConfirmSelection();
@@ -1271,16 +1271,19 @@ export class InGameMenu {
   /**
    * Confirm reset: wipe all game state and return to main menu.
    */
-  private confirmReset(): void {
+  private async confirmReset(): Promise<void> {
     console.log('[InGameMenu] Reset confirmed');
 
     this.game.store.getState().resetGame();
+
+    // Save the clean initial state to overwrite old save data
+    await this.game.saveManager.quickSave();
 
     // Close the menu
     this.hide();
 
     // Go to main menu
-    void this.game.switchScene('main-menu');
+    await this.game.switchScene('main-menu');
   }
 
   /**

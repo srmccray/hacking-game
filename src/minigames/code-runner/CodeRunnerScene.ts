@@ -50,6 +50,7 @@ import {
   scoreStyle,
   FONT_FAMILY,
   FONT_SIZES,
+  createTerminalStyle,
 } from '../../rendering/styles';
 import { GameEvents } from '../../events/game-events';
 import { getGapWidthBonus, getWallSpacingBonus, getMoveSpeedBonus } from '../../upgrades/upgrade-definitions';
@@ -180,6 +181,15 @@ class CodeRunnerScene implements Scene {
   /** Whether results overlay is showing */
   private showingResults: boolean = false;
 
+  /** Milestone overlay container */
+  private milestoneOverlay: Container | null = null;
+
+  /** Whether the milestone overlay is currently showing */
+  private showingMilestone: boolean = false;
+
+  /** The milestone threshold value currently being displayed */
+  private pendingMilestoneThreshold: number = 0;
+
   // UI Elements
   private playerContainer: Container | null = null;
   private playerGraphic: Graphics | null = null;
@@ -291,7 +301,7 @@ class CodeRunnerScene implements Scene {
   }
 
   onUpdate(deltaMs: number): void {
-    if (!this.minigame || this.showingResults) {
+    if (!this.minigame || this.showingResults || this.showingMilestone) {
       return;
     }
 
@@ -327,6 +337,7 @@ class CodeRunnerScene implements Scene {
     this.difficultyStatsText = null;
     this.statusText = null;
     this.resultsOverlay = null;
+    this.milestoneOverlay = null;
     this.gameArea = null;
     this.difficultyPopupText = null;
 
@@ -762,6 +773,13 @@ class CodeRunnerScene implements Scene {
     });
     this.unsubscribers.push(unsubEnd);
 
+    // Handle wall-count milestone reached
+    const unsubMilestone = this.minigame.on('milestone-reached' as import('../BaseMinigame').MinigameEventType, (payload) => {
+      const thresholdValue = (payload.data as { thresholdValue: number }).thresholdValue;
+      this.handleMilestoneReached(thresholdValue);
+    });
+    this.unsubscribers.push(unsubMilestone);
+
     // Handle obstacle passed - show difficulty popup
     const unsubObstaclePassed = this.minigame.on('obstacle-passed' as 'end', (payload) => {
       const data = payload.data as { wallsPassed: number; difficultyType: DifficultyType };
@@ -907,6 +925,164 @@ class CodeRunnerScene implements Scene {
   }
 
   // ==========================================================================
+  // Survival Milestone Overlay
+  // ==========================================================================
+
+  /**
+   * Handle a wall-count milestone being reached.
+   * Checks if the milestone has already been achieved globally before showing the overlay.
+   *
+   * @param thresholdValue - The wall-count milestone threshold
+   */
+  private handleMilestoneReached(thresholdValue: number): void {
+    // Check if already achieved globally
+    const storeState = this.game.store.getState();
+    if (storeState.survivalMilestones.includes(thresholdValue)) {
+      // Already achieved globally, just resume
+      if (this.minigame?.isPaused) {
+        this.minigame.resume();
+      }
+      return;
+    }
+
+    this.pendingMilestoneThreshold = thresholdValue;
+    this.showMilestoneOverlay(thresholdValue);
+  }
+
+  /**
+   * Show the wall-count milestone overlay.
+   *
+   * @param thresholdValue - The wall-count milestone threshold
+   */
+  private showMilestoneOverlay(thresholdValue: number): void {
+    if (this.showingMilestone) {
+      return;
+    }
+
+    this.showingMilestone = true;
+
+    const canvasWidth = this.game.config.canvas.width;
+    const canvasHeight = this.game.config.canvas.height;
+
+    this.milestoneOverlay = new Container();
+    this.milestoneOverlay.label = 'milestone-overlay';
+
+    // Semi-transparent dark background
+    const bg = new Graphics();
+    bg.rect(0, 0, canvasWidth, canvasHeight);
+    bg.fill({ color: 0x000000, alpha: 0.80 });
+    this.milestoneOverlay.addChild(bg);
+
+    // Box dimensions
+    const boxWidth = 440;
+    const boxHeight = 240;
+    const boxX = (canvasWidth - boxWidth) / 2;
+    const boxY = (canvasHeight - boxHeight) / 2;
+
+    // Box fill
+    const boxFill = new Graphics();
+    boxFill.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
+    boxFill.fill({ color: COLORS.BACKGROUND });
+    this.milestoneOverlay.addChild(boxFill);
+
+    // Box border
+    const boxBorder = new Graphics();
+    boxBorder.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
+    boxBorder.stroke({ color: COLORS.TERMINAL_CYAN, width: 2 });
+    this.milestoneOverlay.addChild(boxBorder);
+
+    // Title
+    const title = new Text({
+      text: '[ REPUTATION EARNED ]',
+      style: createTerminalStyle(COLORS.TERMINAL_CYAN, FONT_SIZES.TITLE, true),
+    });
+    title.anchor.set(0.5, 0);
+    title.x = canvasWidth / 2;
+    title.y = boxY + 20;
+    this.milestoneOverlay.addChild(title);
+
+    // Wall count reached
+    const wallText = new Text({
+      text: `${thresholdValue} WALLS SURVIVED`,
+      style: createTerminalStyle(COLORS.TERMINAL_GREEN, FONT_SIZES.MEDIUM, true),
+    });
+    wallText.anchor.set(0.5, 0);
+    wallText.x = canvasWidth / 2;
+    wallText.y = boxY + 60;
+    this.milestoneOverlay.addChild(wallText);
+
+    // Flavor text
+    const flavorText = new Text({
+      text: 'Your code-breaking prowess has earned recognition\nin the hacking community.',
+      style: new TextStyle({
+        fontFamily: FONT_FAMILY,
+        fontSize: FONT_SIZES.NORMAL,
+        fill: COLORS.TERMINAL_DIM,
+        align: 'center',
+        wordWrap: true,
+        wordWrapWidth: boxWidth - 40,
+      }),
+    });
+    flavorText.anchor.set(0.5, 0);
+    flavorText.x = canvasWidth / 2;
+    flavorText.y = boxY + 95;
+    this.milestoneOverlay.addChild(flavorText);
+
+    // Reward line
+    const rewardText = new Text({
+      text: '+10 Renown/min',
+      style: createTerminalStyle(COLORS.TERMINAL_BRIGHT, FONT_SIZES.MEDIUM, true),
+    });
+    rewardText.anchor.set(0.5, 0);
+    rewardText.x = canvasWidth / 2;
+    rewardText.y = boxY + 150;
+    this.milestoneOverlay.addChild(rewardText);
+
+    // Dismiss instructions
+    const instructions = new Text({
+      text: 'Press any key or click to continue',
+      style: terminalDimStyle,
+    });
+    instructions.anchor.set(0.5, 0);
+    instructions.x = canvasWidth / 2;
+    instructions.y = boxY + boxHeight - 35;
+    this.milestoneOverlay.addChild(instructions);
+
+    this.container.addChild(this.milestoneOverlay);
+  }
+
+  /**
+   * Dismiss the milestone overlay, apply the reward, and resume gameplay.
+   */
+  private dismissMilestoneOverlay(): void {
+    if (!this.showingMilestone) {
+      return;
+    }
+
+    // Apply the milestone reward via game store
+    const storeState = this.game.store.getState();
+    storeState.achieveSurvivalMilestone(this.pendingMilestoneThreshold);
+
+    // Remove overlay
+    if (this.milestoneOverlay) {
+      this.container.removeChild(this.milestoneOverlay);
+      this.milestoneOverlay.destroy({ children: true });
+      this.milestoneOverlay = null;
+    }
+
+    this.showingMilestone = false;
+    this.pendingMilestoneThreshold = 0;
+
+    // Resume the game
+    if (this.minigame?.isPaused) {
+      this.minigame.resume();
+    }
+
+    // Refresh display immediately
+    this.updateDisplay();
+  }
+
+  // ==========================================================================
   // Input Handling
   // ==========================================================================
 
@@ -963,6 +1139,11 @@ class CodeRunnerScene implements Scene {
    * Handle movement input.
    */
   private handleMovement(left: boolean, right: boolean): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (this.showingResults || !this.minigame?.isPlaying) {
       return;
     }
@@ -997,6 +1178,11 @@ class CodeRunnerScene implements Scene {
    * Handle escape key.
    */
   private handleEscape(): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (this.showingResults) {
       // Exit to apartment
       void this.game.switchScene('apartment');
@@ -1015,6 +1201,11 @@ class CodeRunnerScene implements Scene {
    * Handle enter key.
    */
   private handleEnter(): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (this.showingResults) {
       // Return to interstitial menu
       const interstitialSceneId = `minigame-interstitial-${this.id}`;

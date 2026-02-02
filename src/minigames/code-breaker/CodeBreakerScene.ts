@@ -28,12 +28,12 @@
  *   sceneManager.register('code-breaker', () => scene);
  */
 
-import { Container, Graphics, Text } from 'pixi.js';
+import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { Scene, GameInstance } from '../../core/types';
 import type { Game } from '../../game/Game';
 import type { InputContext } from '../../input/InputManager';
 import { INPUT_PRIORITY } from '../../input/InputManager';
-import { CodeBreakerGame } from './CodeBreakerGame';
+import { CodeBreakerGame, CODE_BREAKER_MILESTONE_NAMESPACE } from './CodeBreakerGame';
 import type { FailReason } from './CodeBreakerGame';
 import type { MinigameEventType } from '../BaseMinigame';
 import { COLORS } from '../../rendering/Renderer';
@@ -44,6 +44,8 @@ import {
   titleStyle,
   scoreStyle,
   hudStyle,
+  FONT_FAMILY,
+  FONT_SIZES,
   createTerminalStyle,
 } from '../../rendering/styles';
 import { GameEvents } from '../../events/game-events';
@@ -115,6 +117,15 @@ class CodeBreakerScene implements Scene {
 
   /** Whether results overlay is showing */
   private showingResults: boolean = false;
+
+  /** Whether the milestone overlay is currently showing */
+  private showingMilestone: boolean = false;
+
+  /** Milestone overlay container */
+  private milestoneOverlay: Container | null = null;
+
+  /** The milestone threshold value currently being displayed (raw code length) */
+  private pendingMilestoneThreshold: number = 0;
 
   /** Raw keydown event handler reference (for cleanup) */
   private rawKeydownHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -239,7 +250,7 @@ class CodeBreakerScene implements Scene {
   }
 
   onUpdate(deltaMs: number): void {
-    if (!this.minigame || this.showingResults) {
+    if (!this.minigame || this.showingResults || this.showingMilestone) {
       return;
     }
 
@@ -281,6 +292,7 @@ class CodeBreakerScene implements Scene {
     this.statusText = null;
     this.codeDisplayContainer = null;
     this.resultsOverlay = null;
+    this.milestoneOverlay = null;
 
     // Destroy container and children
     this.container.destroy({ children: true });
@@ -798,6 +810,13 @@ class CodeBreakerScene implements Scene {
     });
     this.unsubscribers.push(unsubEnd);
 
+    // Handle code-length milestone reached
+    const unsubMilestone = this.minigame.on('milestone-reached' as MinigameEventType, (payload) => {
+      const thresholdValue = (payload.data as { thresholdValue: number }).thresholdValue;
+      this.handleMilestoneReached(thresholdValue);
+    });
+    this.unsubscribers.push(unsubMilestone);
+
     // Handle sequence complete (rebuild display for new code length)
     // Cast to MinigameEventType to match how CodeBreakerGame emits the event
     const unsubSequence = this.minigame.on('sequence-complete' as MinigameEventType, (payload) => {
@@ -987,6 +1006,12 @@ class CodeBreakerScene implements Scene {
    */
   private registerRawKeyListener(): void {
     this.rawKeydownHandler = (event: KeyboardEvent): void => {
+      // Dismiss milestone overlay on any key
+      if (this.showingMilestone) {
+        this.dismissMilestoneOverlay();
+        return;
+      }
+
       // Do not process if showing results
       if (this.showingResults) { return; }
       if (!this.minigame?.isPlaying) { return; }
@@ -1056,6 +1081,11 @@ class CodeBreakerScene implements Scene {
    * Handle escape key.
    */
   private handleEscape(): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (this.showingResults) {
       void this.game.switchScene('apartment');
       return;
@@ -1073,6 +1103,11 @@ class CodeBreakerScene implements Scene {
    * Handle enter key.
    */
   private handleEnter(): void {
+    if (this.showingMilestone) {
+      this.dismissMilestoneOverlay();
+      return;
+    }
+
     if (this.showingResults) {
       const interstitialSceneId = `minigame-interstitial-${this.id}`;
       this.game.sceneManager.register(
@@ -1080,6 +1115,164 @@ class CodeBreakerScene implements Scene {
         () => createMinigameInterstitialScene(this.game, this.id)
       );
       void this.game.switchScene(interstitialSceneId);
+    }
+  }
+  // ==========================================================================
+  // Milestone Overlay
+  // ==========================================================================
+
+  /**
+   * Handle a code-length milestone being reached.
+   * Checks if the milestone has already been achieved globally before showing the overlay.
+   *
+   * @param thresholdValue - The raw code-length milestone threshold (e.g. 10, 15, 20)
+   */
+  private handleMilestoneReached(thresholdValue: number): void {
+    // Namespace the threshold for global store storage
+    const namespacedValue = CODE_BREAKER_MILESTONE_NAMESPACE + thresholdValue;
+
+    // Check if already achieved globally
+    const storeState = this.game.store.getState();
+    if (storeState.survivalMilestones.includes(namespacedValue)) {
+      // Already achieved globally, just resume
+      if (this.minigame?.isPaused) {
+        this.minigame.resume();
+      }
+      return;
+    }
+
+    this.pendingMilestoneThreshold = thresholdValue;
+    this.showMilestoneOverlay(thresholdValue);
+  }
+
+  /**
+   * Show the code-length milestone overlay.
+   *
+   * @param thresholdValue - The raw code-length value to display (e.g. 10, 15, 20)
+   */
+  private showMilestoneOverlay(thresholdValue: number): void {
+    if (this.showingMilestone) {
+      return;
+    }
+
+    this.showingMilestone = true;
+
+    const canvasWidth = this.game.config.canvas.width;
+    const canvasHeight = this.game.config.canvas.height;
+
+    this.milestoneOverlay = new Container();
+    this.milestoneOverlay.label = 'milestone-overlay';
+
+    // Semi-transparent dark background
+    const bg = new Graphics();
+    bg.rect(0, 0, canvasWidth, canvasHeight);
+    bg.fill({ color: 0x000000, alpha: 0.80 });
+    this.milestoneOverlay.addChild(bg);
+
+    // Box dimensions
+    const boxWidth = 440;
+    const boxHeight = 240;
+    const boxX = (canvasWidth - boxWidth) / 2;
+    const boxY = (canvasHeight - boxHeight) / 2;
+
+    // Box fill
+    const boxFill = new Graphics();
+    boxFill.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
+    boxFill.fill({ color: COLORS.BACKGROUND });
+    this.milestoneOverlay.addChild(boxFill);
+
+    // Box border
+    const boxBorder = new Graphics();
+    boxBorder.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
+    boxBorder.stroke({ color: COLORS.TERMINAL_CYAN, width: 2 });
+    this.milestoneOverlay.addChild(boxBorder);
+
+    // Title
+    const title = new Text({
+      text: '[ REPUTATION EARNED ]',
+      style: createTerminalStyle(COLORS.TERMINAL_CYAN, FONT_SIZES.TITLE, true),
+    });
+    title.anchor.set(0.5, 0);
+    title.x = canvasWidth / 2;
+    title.y = boxY + 20;
+    this.milestoneOverlay.addChild(title);
+
+    // Code length reached
+    const lengthText = new Text({
+      text: `LENGTH ${thresholdValue} CODE BROKEN`,
+      style: createTerminalStyle(COLORS.TERMINAL_GREEN, FONT_SIZES.MEDIUM, true),
+    });
+    lengthText.anchor.set(0.5, 0);
+    lengthText.x = canvasWidth / 2;
+    lengthText.y = boxY + 60;
+    this.milestoneOverlay.addChild(lengthText);
+
+    // Flavor text
+    const flavorText = new Text({
+      text: 'Your decryption skills have earned recognition\nin the hacking community.',
+      style: new TextStyle({
+        fontFamily: FONT_FAMILY,
+        fontSize: FONT_SIZES.NORMAL,
+        fill: COLORS.TERMINAL_DIM,
+        align: 'center',
+        wordWrap: true,
+        wordWrapWidth: boxWidth - 40,
+      }),
+    });
+    flavorText.anchor.set(0.5, 0);
+    flavorText.x = canvasWidth / 2;
+    flavorText.y = boxY + 95;
+    this.milestoneOverlay.addChild(flavorText);
+
+    // Reward line
+    const rewardText = new Text({
+      text: '+10 Renown/min',
+      style: createTerminalStyle(COLORS.TERMINAL_BRIGHT, FONT_SIZES.MEDIUM, true),
+    });
+    rewardText.anchor.set(0.5, 0);
+    rewardText.x = canvasWidth / 2;
+    rewardText.y = boxY + 150;
+    this.milestoneOverlay.addChild(rewardText);
+
+    // Dismiss instructions
+    const instructions = new Text({
+      text: 'Press any key or click to continue',
+      style: terminalDimStyle,
+    });
+    instructions.anchor.set(0.5, 0);
+    instructions.x = canvasWidth / 2;
+    instructions.y = boxY + boxHeight - 35;
+    this.milestoneOverlay.addChild(instructions);
+
+    this.container.addChild(this.milestoneOverlay);
+  }
+
+  /**
+   * Dismiss the milestone overlay, apply the reward, and resume gameplay.
+   */
+  private dismissMilestoneOverlay(): void {
+    if (!this.showingMilestone) {
+      return;
+    }
+
+    // Apply the milestone reward via game store (namespaced value)
+    const namespacedValue = CODE_BREAKER_MILESTONE_NAMESPACE + this.pendingMilestoneThreshold;
+    const storeState = this.game.store.getState();
+    storeState.achieveSurvivalMilestone(namespacedValue);
+
+    // Remove overlay
+    if (this.milestoneOverlay) {
+      this.container.removeChild(this.milestoneOverlay);
+      this.milestoneOverlay.destroy({ children: true });
+      this.milestoneOverlay = null;
+    }
+
+    this.showingMilestone = false;
+    this.pendingMilestoneThreshold = 0;
+
+    // Resume the game
+    if (this.minigame?.isPaused) {
+      this.minigame.resume();
     }
   }
 }

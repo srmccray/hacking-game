@@ -36,6 +36,23 @@ import type { CodeBreakerConfig } from '../../game/GameConfig';
 import { DEFAULT_CONFIG } from '../../game/GameConfig';
 
 // ============================================================================
+// Milestone Thresholds
+// ============================================================================
+
+/**
+ * Code-length milestones that trigger a reputation reward overlay.
+ * When the player's code length reaches one of these values after cracking a code,
+ * a milestone overlay is shown.
+ *
+ * Namespaced as 10000 + length for global storage to avoid collision with
+ * Code Runner's wall thresholds (15, 30, 45).
+ */
+export const CODE_LENGTH_MILESTONE_THRESHOLDS: readonly number[] = [10, 15, 20] as const;
+
+/** Namespace offset for Code Breaker milestones in the global store. */
+export const CODE_BREAKER_MILESTONE_NAMESPACE = 10000;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -106,6 +123,9 @@ export class CodeBreakerGame extends BaseMinigame {
 
   /** Upgrade bonus time in milliseconds (set externally before start) */
   private _upgradeBonusMs: number = 0;
+
+  /** Code-length milestones triggered this session (to avoid re-triggering). */
+  private _triggeredMilestones: Set<number> = new Set();
 
   // ==========================================================================
   // Constructor
@@ -201,6 +221,7 @@ export class CodeBreakerGame extends BaseMinigame {
     this._codesCracked = 0;
     this._failReason = null;
     this._totalMoneyEarned = 0;
+    this._triggeredMilestones = new Set();
 
     this.generateNewSequence();
     this.resetPerCodeTimer();
@@ -326,6 +347,9 @@ export class CodeBreakerGame extends BaseMinigame {
     // Escalate: increase code length BEFORE emitting so listeners see updated state
     this._currentCodeLength += this.config.lengthIncrement;
 
+    // Check code-length milestones after incrementing
+    this.checkCodeLengthMilestones();
+
     // Generate new code and reset timer BEFORE emitting so display rebuilds with new sequence
     this.generateNewSequence();
     this.resetPerCodeTimer();
@@ -340,6 +364,32 @@ export class CodeBreakerGame extends BaseMinigame {
         moneyEarned: this._totalMoneyEarned,
       },
     });
+  }
+
+  // ==========================================================================
+  // Milestone Checking
+  // ==========================================================================
+
+  /**
+   * Check if any code-length milestone thresholds have been crossed.
+   * Emits a 'milestone-reached' event for each newly crossed threshold
+   * that hasn't been triggered in this session. Pauses the game on trigger.
+   */
+  private checkCodeLengthMilestones(): void {
+    for (const threshold of CODE_LENGTH_MILESTONE_THRESHOLDS) {
+      if (this._currentCodeLength >= threshold && !this._triggeredMilestones.has(threshold)) {
+        this._triggeredMilestones.add(threshold);
+        this.pause();
+        this.emit('milestone-reached' as MinigameEventType, {
+          minigameId: this.id,
+          data: {
+            thresholdValue: threshold,
+          },
+        });
+        // Only trigger one milestone at a time
+        return;
+      }
+    }
   }
 
   // ==========================================================================
@@ -400,6 +450,7 @@ export class CodeBreakerGame extends BaseMinigame {
     this._previewRemainingMs = 0;
     this._failReason = null;
     this._totalMoneyEarned = 0;
+    this._triggeredMilestones = new Set();
   }
 
   // ==========================================================================
