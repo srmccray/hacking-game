@@ -440,6 +440,7 @@ class ApartmentScene implements Scene {
         functional: true,
         ascii: [],
         promptText: '[ENTER] Exit to Town',
+        promptYOffset: 20,
       },
     });
     this.stationManager.addStation(door);
